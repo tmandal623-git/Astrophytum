@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================
+   Base Styles
+========================= */
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+/* Dark mode support */
+.dark body {
+  @apply bg-gray-950 text-gray-100;
+}
+
+/* =========================
+   Scrollbar Styling (optional but nice)
+========================= */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded-md;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-gray-700;
+}
+
+/* =========================
+   Reusable Utilities
+========================= */
+@layer utilities {
+  .animate-fadeIn {
+    animation: fadeIn 0.3s ease-in-out;
+  }
+}
+
+/* =========================
+   Animations
+========================= */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
