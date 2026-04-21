@@ -9,6 +9,7 @@ import { Input } from '../components/ui/Input';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useToast } from '../context/ToastContext';
 import { cn } from '../utils/cn';
+import { ImageUpload } from '../components/common/ImageUpload';
 
 // ── Types ──────────────────────────────────────────────────
 interface AdminStat {
@@ -25,9 +26,16 @@ interface CactusForm {
   description: string;
   categoryId:  string;
   basePrice:   string;
+  images: File[]; // New field
 }
 
-const EMPTY_FORM: CactusForm = { name: '', description: '', categoryId: '', basePrice: '' };
+const EMPTY_FORM: CactusForm = { 
+  name: '', 
+  description: '', 
+  categoryId: '', 
+  basePrice: '', 
+  images: []   // New field
+};
 
 // Bar chart heights (%) for Mon–Sun
 const CHART_DATA = [
@@ -97,6 +105,7 @@ export function AdminPage() {
       description: c.description ?? '',
       categoryId:  String(categories.find(cat => cat.name === c.categoryName)?.id ?? ''),
       basePrice:   String(c.basePrice),
+      images:      [], // Initialize as empty for new uploads during this edit session
     });
     setFormErrors({});
     setModalMode('edit');
@@ -133,14 +142,22 @@ export function AdminPage() {
         ]);
         showToast('Cactus added successfully!');
       } else if (editTarget) {
-        await cactusService.update(editTarget.id, payload);
-        setCacti((prev) => prev.map((c) =>
-          c.id === editTarget.id
-            ? { ...c, ...payload, categoryName: categories.find(cat => cat.id === payload.categoryId)?.name ?? c.categoryName }
-            : c,
-        ));
-        showToast('Cactus updated successfully!');
-      }
+        // 1. Send the FormData to your service
+  // Your service should return the updated cactus object from the database
+  const updatedCactus = await cactusService.update(editTarget.id, FormData);
+
+  // 2. Update the local state using the server's response
+  setCacti((prev) =>
+    prev.map((c) => (c.id === editTarget.id ? { 
+      ...c, 
+      ...updatedCactus,
+      // Ensure the category name is mapped if the backend only returns the ID
+      categoryName: categories.find(cat => cat.id === updatedCactus.categoryId)?.name ?? c.categoryName 
+    } : c))
+  );
+
+  showToast('Cactus updated successfully!');
+}
       closeModal();
     } catch {
       showToast('Save failed. Please try again.', 'error');
@@ -367,6 +384,7 @@ export function AdminPage() {
                 ✕
               </button>
             </div>
+            
 
             {/* Form */}
             <div className="px-6 py-5 flex flex-col gap-4">
@@ -376,6 +394,11 @@ export function AdminPage() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 error={formErrors.name}
+              />
+              <ImageUpload
+                files={form.images}
+                onChange={(newFiles) => setForm({ ...form, images: newFiles })}
+                maxFiles={5}
               />
 
               <div className="flex flex-col gap-1.5">
@@ -425,6 +448,7 @@ export function AdminPage() {
                 onChange={(e) => setForm({ ...form, basePrice: e.target.value })}
                 error={formErrors.basePrice}
               />
+              
             </div>
 
             {/* Modal footer */}
