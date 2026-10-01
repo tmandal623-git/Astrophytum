@@ -1,3 +1,5 @@
+// src/types/index.ts
+
 export interface Category {
   id:          number;
   name:        string;
@@ -22,16 +24,21 @@ export interface AuctionInfo {
   totalBids:    number;
 }
 
+// List item returned by GET /api/cactus (paginated list)
 export interface CactusListItem {
   id:           number;
   name:         string;
   description:  string | null;
   categoryName: string;
+  categoryId:   number;
   basePrice:    number;
-  hasAuction:   boolean;
+  hasAuction:   boolean;   // true = active auction exists
   thumbnailUrl: string | null;
+  rating:       number;    // 0–5, default 0
+  ratingCount:  number;    // total number of ratings
 }
 
+// Full detail returned by GET /api/cactus/:id
 export interface CactusDetail {
   id:           number;
   name:         string;
@@ -40,6 +47,8 @@ export interface CactusDetail {
   categoryName: string;
   basePrice:    number;
   createdAt:    string;
+  rating:       number;
+  ratingCount:  number;
   media:        MediaItem[];
   auction:      AuctionInfo | null;
 }

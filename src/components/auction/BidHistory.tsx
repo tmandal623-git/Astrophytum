@@ -112,7 +112,7 @@ export function BidHistory({ bids, loading }: BidHistoryProps) {
                   'text-sm font-semibold flex-shrink-0',
                   isHighest ? 'text-red-500' : 'text-gray-700 dark:text-gray-300',
                 )}>
-                  ${bid.amount.toFixed(2)}
+                  ₹{bid.amount.toFixed(2)}
                 </span>
               </li>
             );

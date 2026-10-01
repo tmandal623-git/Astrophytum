@@ -31,8 +31,8 @@ export function AuctionPanel({ cactusId, userId }: AuctionPanelProps) {
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         {[
-          { label: 'Starting Price',  value: `$${auction.startPrice.toFixed(2)}` },
-          { label: 'Current Bid',     value: `$${auction.currentPrice.toFixed(2)}`, highlight: true },
+          { label: 'Starting Price',  value: `₹${auction.startPrice.toFixed(2)}` },
+          { label: 'Current Bid',     value: `₹${auction.currentPrice.toFixed(2)}`, highlight: true },
         ].map(({ label, value, highlight }) => (
           <div key={label} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
             <p className="text-xs text-gray-400 mb-1">{label}</p>
@@ -51,12 +51,12 @@ export function AuctionPanel({ cactusId, userId }: AuctionPanelProps) {
           onChange={(e) => setSelectedAmount(parseFloat(e.target.value))}
         >
           {options.map((v, i) => (
-            <option key={v} value={v}>${v.toFixed(2)}{i === 0 ? ' (minimum)' : ''}</option>
+            <option key={v} value={v}>₹{v.toFixed(2)}{i === 0 ? ' (minimum)' : ''}</option>
           ))}
         </select>
 
         <Button variant="danger" onClick={handleBid} loading={bidding} className="w-full py-3">
-          Place Bid of ${selectedAmount.toFixed(2)}
+          Place Bid of ₹{selectedAmount.toFixed(2)}
         </Button>
 
         {success && (

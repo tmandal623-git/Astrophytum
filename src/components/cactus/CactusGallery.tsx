@@ -1,3 +1,7 @@
+// src/components/cactus/CactusGallery.tsx
+// Main image (large) + all images as a single horizontal thumbnail strip.
+// Thumbnails are always visible regardless of count.
+
 import { useState } from 'react';
 import { MediaItem } from '../../types';
 import { cn } from '../../utils/cn';
@@ -11,45 +15,50 @@ export function CactusGallery({ media, name }: CactusGalleryProps) {
   const images = media.filter((m) => m.type === 'Image');
   const video  = media.find((m)  => m.type === 'Video');
 
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex,  setActiveIndex]  = useState(0);
   const [videoPlaying, setVideoPlaying] = useState(false);
+  const [imgError,     setImgError]     = useState<Record<number, boolean>>({});
 
   const activeImage = images[activeIndex];
 
-  const prevImage = () => setActiveIndex((i) => (i === 0 ? images.length - 1 : i - 1));
-  const nextImage = () => setActiveIndex((i) => (i === images.length - 1 ? 0 : i + 1));
+  const prevImage = () =>
+    setActiveIndex((i) => (i === 0 ? images.length - 1 : i - 1));
+  const nextImage = () =>
+    setActiveIndex((i) => (i === images.length - 1 ? 0 : i + 1));
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2.5">
 
-      {/* Main image */}
-      <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-cactus-50 dark:bg-cactus-900 border border-gray-200 dark:border-gray-700 group">
-        {activeImage ? (
+      {/* ── Main image ───────────────────────────────────────── */}
+      <div className="relative w-full aspect-[4/3] rounded-2xl overflow-hidden bg-cactus-50 dark:bg-cactus-950 border border-gray-200 dark:border-gray-700 group">
+
+        {activeImage && !imgError[activeIndex] ? (
           <img
             key={activeImage.url}
             src={activeImage.url}
             alt={`${name} — photo ${activeIndex + 1}`}
             className="w-full h-full object-cover transition-opacity duration-300"
+            onError={() => setImgError(prev => ({ ...prev, [activeIndex]: true }))}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-8xl select-none">🌵</div>
+          <div className="w-full h-full flex items-center justify-center text-8xl select-none opacity-30">
+            🌵
+          </div>
         )}
 
-        {/* Prev / Next arrows — only shown when multiple images */}
+        {/* Prev / Next — only when >1 image */}
         {images.length > 1 && (
           <>
             <button
               onClick={prevImage}
-              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white
-                         flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center text-lg [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-all hover:bg-black/60 hover:scale-105"
               aria-label="Previous image"
             >
               ‹
             </button>
             <button
               onClick={nextImage}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 text-white
-                         flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60"
+              className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center text-lg [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-all hover:bg-black/60 hover:scale-105"
               aria-label="Next image"
             >
               ›
@@ -57,45 +66,56 @@ export function CactusGallery({ media, name }: CactusGalleryProps) {
           </>
         )}
 
-        {/* Index indicator */}
+        {/* Image counter badge */}
         {images.length > 1 && (
-          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
-            {images.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setActiveIndex(i)}
-                className={cn(
-                  'w-1.5 h-1.5 rounded-full transition-all duration-200',
-                  i === activeIndex ? 'bg-white w-4' : 'bg-white/50',
-                )}
-                aria-label={`Go to image ${i + 1}`}
-              />
-            ))}
+          <div className="absolute bottom-3 right-3 bg-black/50 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
+            {activeIndex + 1} / {images.length}
           </div>
         )}
       </div>
 
-      {/* Thumbnails */}
-      {images.length > 1 && (
-        <div className="grid grid-cols-4 gap-2">
+      {/* ── Thumbnail strip — always horizontal, all 5 in one row ── */}
+      {images.length > 0 && (
+        <div className="flex gap-2">
           {images.map((img, i) => (
             <button
-              key={img.id}
+              key={img.id ?? i}
               onClick={() => setActiveIndex(i)}
               className={cn(
-                'aspect-square rounded-lg overflow-hidden border-2 transition-all duration-150',
+                // Each thumb takes equal width in the row
+                'flex-1 aspect-square rounded-lg overflow-hidden border-2 transition-all duration-150 flex-shrink-0',
                 i === activeIndex
-                  ? 'border-cactus-500 opacity-100 ring-2 ring-cactus-300 dark:ring-cactus-700'
-                  : 'border-transparent opacity-60 hover:opacity-90 hover:border-gray-300',
+                  ? 'border-cactus-500 ring-2 ring-cactus-300 dark:ring-cactus-700 opacity-100'
+                  : 'border-transparent opacity-55 hover:opacity-85 hover:border-gray-300 dark:hover:border-gray-600',
               )}
+              aria-label={`View photo ${i + 1}`}
             >
-              <img src={img.url} alt={`Thumb ${i + 1}`} className="w-full h-full object-cover" />
+              {!imgError[i] ? (
+                <img
+                  src={img.url}
+                  alt={`${name} thumbnail ${i + 1}`}
+                  className="w-full h-full object-cover"
+                  onError={() => setImgError(prev => ({ ...prev, [i]: true }))}
+                />
+              ) : (
+                <div className="w-full h-full bg-cactus-50 dark:bg-cactus-950 flex items-center justify-center text-lg opacity-40">
+                  🌵
+                </div>
+              )}
             </button>
+          ))}
+
+          {/* Empty placeholder slots up to 5 — keeps layout consistent */}
+          {images.length < 5 && Array.from({ length: 5 - images.length }).map((_, i) => (
+            <div
+              key={`empty-${i}`}
+              className="flex-1 aspect-square rounded-lg border-2 border-dashed border-gray-100 dark:border-gray-800 flex-shrink-0"
+            />
           ))}
         </div>
       )}
 
-      {/* Video embed */}
+      {/* ── Video ────────────────────────────────────────────── */}
       {video && (
         <div className="mt-1">
           {videoPlaying ? (
@@ -111,8 +131,7 @@ export function CactusGallery({ media, name }: CactusGalleryProps) {
           ) : (
             <button
               onClick={() => setVideoPlaying(true)}
-              className="w-full flex items-center gap-4 bg-gray-900 dark:bg-gray-800 text-white
-                         rounded-xl px-5 py-4 hover:bg-gray-800 dark:hover:bg-gray-700 transition-colors"
+              className="w-full flex items-center gap-4 bg-gray-900 dark:bg-gray-800 text-white rounded-xl px-5 py-4 hover:bg-gray-800 dark:hover:bg-gray-700 transition-colors"
             >
               <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
                 <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24">

@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+.vercel/
+
+# Environment variables (secrets)
+.env
+.env.*
+!.env.example
+**/.env
+
+# Python virtualenv
+env/
+venv/
+.venv/
+
+# Local dev image uploads (generated at runtime by api/media)
+api/public/images/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/launch.json
+.idea/
+.DS_Store
+Thumbs.db
+*.local
+
+# Claude Code local worktrees / personal settings
+.claude/worktrees/
+.claude/settings.local.json

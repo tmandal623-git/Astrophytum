@@ -92,7 +92,7 @@ export function MyBidsPage() {
           { label: 'Active Bids',   value: activeBids.length,          sub: 'ongoing auctions' },
           { label: 'Currently Winning', value: winning,                sub: 'you\'re in the lead' },
           { label: 'Auctions Won',  value: endedBids.filter(b => b.status === 'won').length,  sub: 'all time' },
-          { label: 'Total Spent',   value: `$${totalSpent.toFixed(2)}`, sub: 'on won auctions' },
+          { label: 'Total Spent',   value: `₹${totalSpent.toFixed(2)}`, sub: 'on won auctions' },
         ].map(({ label, value, sub }) => (
           <div
             key={label}
@@ -176,7 +176,7 @@ export function MyBidsPage() {
 
                       {/* My bid */}
                       <td className="px-4 py-3 text-right font-medium text-gray-700 dark:text-gray-300">
-                        ${bid.myAmount.toFixed(2)}
+                        ₹{bid.myAmount.toFixed(2)}
                       </td>
 
                       {/* Current / Final bid */}
@@ -185,7 +185,7 @@ export function MyBidsPage() {
                           'font-semibold',
                           isAbove ? 'text-cactus-600 dark:text-cactus-400' : 'text-red-500',
                         )}>
-                          ${bid.currentBid.toFixed(2)}
+                          ₹{bid.currentBid.toFixed(2)}
                         </span>
                       </td>
 

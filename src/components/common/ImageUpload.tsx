@@ -88,7 +88,7 @@ export function ImageUpload({ files, onChange, maxFiles = 5 }: ImageUploadProps)
               <button
                 type="button"
                 onClick={() => removeFile(idx)}
-                className="absolute inset-0 bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 ✕
               </button>

@@ -43,14 +43,14 @@ export function BidSelect({ auction, selectedAmount, onAmountChange }: BidSelect
       >
         {options.map((val, i) => (
           <option key={val} value={val}>
-            ${val.toFixed(2)}{i === 0 ? ' — minimum bid' : ''}
+            ₹{val.toFixed(2)}{i === 0 ? ' — minimum bid' : ''}
           </option>
         ))}
       </select>
 
       {/* Visual increment hint */}
       <p className="text-[11px] text-gray-400 dark:text-gray-500">
-        Bids increase in ${bidIncrement.toFixed(2)} increments above the current price.
+        Bids increase in ₹{bidIncrement.toFixed(2)} increments above the current price.
       </p>
     </div>
   );

@@ -1,58 +1,110 @@
-// import api from './api';
-// import type { CactusListItem, CactusDetail, PagedResult } from '../types';
+import api from './api';
+import type { CactusListItem, CactusDetail, PagedResult } from '../types';
 
-// export const cactusService = {
-//   getAll: (page = 1, pageSize = 12, categoryId?: number) =>
-//     api.get<PagedResult<CactusListItem>>('/cactus', {
-//       params: { page, pageSize, ...(categoryId ? { categoryId } : {}) },
-//     }).then((r) => r.data),
-
-//   getById: (id: number) =>
-//     api.get<CactusDetail>(`/cactus/${id}`).then((r) => r.data),
-
-//   create: (payload: { name: string; description?: string; categoryId: number; basePrice: number }) =>
-//     api.post<CactusDetail>('/cactus', payload).then((r) => r.data),
-
-//   update: (id: number, payload: { name: string; description?: string; categoryId: number; basePrice: number }) =>
-//     api.put<CactusDetail>(`/cactus/${id}`, payload).then((r) => r.data),
-
-//   delete: (id: number) => api.delete(`/cactus/${id}`),
-// };
-import { MOCK_CACTI, MOCK_CACTUS_DETAIL } from '../mocks/data';
-import { CactusListItem, CactusDetail, PagedResult } from '../types';
-
-const delay = (ms = 400) => new Promise((r) => setTimeout(r, ms));
+export interface AdminStats {
+  totalSpecies: number;
+  liveAuctions: number;
+  bidsToday: number;
+  bidsTodayValue: number;
+  registeredBidders: number;
+}
+export interface ChartDataPoint {
+  day: string;
+  value: number;
+  pct: number;
+}
 
 export const cactusService = {
-  getAll: async (page = 1, pageSize = 12, categoryId?: number): Promise<PagedResult<CactusListItem>> => {
-    await delay();
-    const filtered = categoryId
-      ? MOCK_CACTI.filter((c) => {
-          const catMap: Record<number, string> = { 1: 'Indoor', 2: 'Outdoor', 3: 'Rare', 4: 'Flowering' };
-          return c.categoryName === catMap[categoryId];
-        })
-      : MOCK_CACTI;
-    const start = (page - 1) * pageSize;
-    const items = filtered.slice(start, start + pageSize);
-    return { items, totalCount: filtered.length, page, pageSize, totalPages: Math.ceil(filtered.length / pageSize) };
-  },
 
-  getById: async (id: number): Promise<CactusDetail> => {
-    await delay();
-    const detail = MOCK_CACTUS_DETAIL[id];
-    if (!detail) throw new Error('Not found');
-    return detail;
-  },
 
-  create: async (payload: any): Promise<CactusDetail> => {
-    await delay(600);
-    return { id: 99, ...payload, categoryName: 'Indoor', createdAt: new Date().toISOString(), media: [], auction: null };
-  },
 
-  update: async (id: number, payload: any): Promise<CactusDetail> => {
-    await delay(600);
-    return { ...MOCK_CACTUS_DETAIL[id], ...payload };
-  },
+  // // 1. Fetch the list of cacti
+  // async getAll(page = 1, pageSize = 10, categoryId): Promise<PagedResult<CactusDetail>> {
+  //   const { data } = await api.get<PagedResult<CactusDetail>>('/cactus', {
+  //     params: { page, limit: pageSize ,categoryId}
+  //   });
+  //   return data;
+  // },
 
-  delete: async (_id: number): Promise<void> => { await delay(400); },
+  // // 2. Create a new cactus
+  // async create(formData: FormData): Promise<CactusDetail> {
+  //   const { data } = await api.post<CactusDetail>('/cactus', formData, {
+  //     headers: { 'Content-Type': 'multipart/form-data' }
+  //   });
+  //   return data;
+  // },
+
+  // // 3. Update existing cactus
+  // async update(id: number, formData: FormData): Promise<CactusDetail> {
+  //   const { data } = await api.put<CactusDetail>(`/cactus/${id}`, formData, {
+  //     headers: { 'Content-Type': 'multipart/form-data' }
+  //   });
+  //   return data;
+  // },
+
+  // // 4. Delete a cactus
+  // async delete(id: number): Promise<void> {
+  //   await api.delete(`/cactus/${id}`);
+  // },
+
+  // // 5. Get admin stats (no separate service needed!)
+  // async getStats(): Promise<AdminStats> {
+  //   const { data } = await api.get<AdminStats>('/admin/stats');
+  //   return data;
+  // },
+
+  // // 6. Get weekly revenue data
+  // async getWeeklyRevenue(): Promise<ChartDataPoint[]> {
+  //   const { data } = await api.get<ChartDataPoint[]>('/admin/revenue');
+  //   return data;
+  // }  
+
+  // ── GET /api/cactus ────────────────────────────────────────
+  // Supports: page, limit (pageSize), categoryId, search
+  getAll: (
+    page = 1,
+    pageSize = 12,
+    categoryId?: number,
+    search?: string,
+  ): Promise<PagedResult<CactusListItem>> =>
+    api
+      .get<PagedResult<CactusListItem>>('/cactus', {
+        params: {
+          page,
+          limit: pageSize,
+          ...(categoryId ? { categoryId } : {}),
+          ...(search?.trim() ? { search: search.trim() } : {}),
+        },
+      })
+      .then((r) => r.data),
+
+  // ── GET /api/cactus/:id ────────────────────────────────────
+  getById: (id: number): Promise<CactusDetail> =>
+    api.get<CactusDetail>(`/cactus/${id}`).then((r) => r.data),
+
+  // ── POST /api/cactus  (multipart/form-data with images) ───
+  create: (formData: FormData): Promise<{ id: number; success: boolean }> =>
+    api
+      .post<{ id: number; success: boolean }>('/api/cactus', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data),
+
+  // ── PUT /api/cactus/:id  (multipart/form-data) ────────────
+  update: (
+    id: number,
+    formData: FormData,
+  ): Promise<{ message: string }> =>
+    api
+      .put<{ message: string }>(`/cactus/${id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data),
+
+  // ── DELETE /api/cactus/:id ────────────────────────────────
+  delete: (id: number): Promise<{ message: string }> =>
+    api
+      .delete<{ message: string }>(`/cactus/${id}`)
+      .then((r) => r.data),
+
 };
