@@ -592,6 +592,11 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
     const str = f => (Array.isArray(f) ? f[0] : f) ?? '';
     const name = str(fields.name)?.trim(), description = str(fields.description)?.trim();
     const categoryId = parseInt(str(fields.categoryId)), basePrice = parseFloat(str(fields.basePrice));
+    const forAuction = str(fields.forAuction) === 'true';
+    const startPrice = parseFloat(str(fields.startPrice) || '0');
+    const bidIncrement = parseFloat(str(fields.bidIncrement) || '2.5');
+    const auctionHours = str(fields.auctionHours) ? parseFloat(str(fields.auctionHours)) : null;   // omitted = keep end time
+    const videoUrl = str(fields.videoUrl)?.trim();
     const imageFiles = (Array.isArray(files.images) ? files.images : [files.images]).filter(f => f?.size > 0);
     if (!name || isNaN(categoryId) || isNaN(basePrice)) {
       await removeTempFiles(imageFiles);
@@ -618,6 +623,30 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
         await client.query(`INSERT INTO media (cactus_id, type, url, sort_order) VALUES ($1,'Image',$2,$3)`,
           [id, imageUrls[i], rows[0].next + i]);
       }
+
+      // Video: replace whatever is stored with the submitted URL (empty = remove)
+      await client.query(`DELETE FROM media WHERE cactus_id=$1 AND type='Video'`, [id]);
+      if (videoUrl) await client.query(`INSERT INTO media (cactus_id, type, url, sort_order) VALUES ($1,'Video',$2,0)`, [id, videoUrl]);
+
+      // Auction: same "live" definition as the list/detail endpoints
+      const { rows: live } = await client.query(
+        `SELECT a.id, (SELECT COUNT(*)::int FROM bid WHERE auction_id=a.id) AS bids
+         FROM auction a WHERE a.cactus_id=$1 AND a.is_active=true AND a.ends_at>NOW() ORDER BY a.id DESC LIMIT 1`, [id]);
+      const auc = live[0];
+      if (forAuction && !auc) {
+        const endsAt = new Date(Date.now() + (auctionHours ?? 48) * 3_600_000);
+        await client.query(
+          `INSERT INTO auction (cactus_id, start_price, current_price, bid_increment, ends_at, is_active) VALUES ($1,$2,$3,$4,$5,true)`,
+          [id, startPrice || basePrice, startPrice || basePrice, bidIncrement, endsAt]);
+      } else if (forAuction && auc) {
+        await client.query(`UPDATE auction SET bid_increment=$1, updated_at=NOW() WHERE id=$2`, [bidIncrement, auc.id]);
+        // Starting price can only change before anyone has bid
+        if (!auc.bids) await client.query(`UPDATE auction SET start_price=$1, current_price=$1 WHERE id=$2`, [startPrice || basePrice, auc.id]);
+        if (auctionHours) await client.query(`UPDATE auction SET ends_at=$1 WHERE id=$2`, [new Date(Date.now() + auctionHours * 3_600_000), auc.id]);
+      } else if (!forAuction && auc) {
+        await client.query(`UPDATE auction SET is_active=false, updated_at=NOW() WHERE id=$1`, [auc.id]);
+      }
+
       await client.query('COMMIT');
       res.json({ message: 'Updated successfully' });
     } catch (dbErr) {

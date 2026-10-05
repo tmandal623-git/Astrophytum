@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminService, AdminStats } from '../services/adminService';
 import { categoryService }          from '../services/categoryService';
-import { CactusListItem, Category } from '../types';
+import { CactusDetail, CactusListItem, Category } from '../types';
 import { Badge }    from '../components/ui/Badge';
 import { Pagination } from '../components/ui/Pagination';
 import { useToast } from '../context/ToastContext';
@@ -132,6 +132,7 @@ export function AdminPage() {
   const [imageFiles,   setImageFiles]   = useState<File[]>([]);
   const [saving,       setSaving]       = useState(false);
   const fileInputRef                    = useRef<HTMLInputElement>(null);
+  const editAuctionHours                = useRef('');
   // ── Payment verification ──────────────────────────────────
   const [pendingOrders,  setPendingOrders]  = useState<PendingOrder[]>([]);
   const [pvLoading,      setPvLoading]      = useState(true);
@@ -195,9 +196,26 @@ export function AdminPage() {
   };
 // ── Modal helpers ─────────────────────────────────────────
   const openAdd = () => { setEditTarget(null); setForm(EMPTY_FORM); setFormErrors({}); setImageFiles([]); setModalMode('add'); };
-  const openEdit = (c: CactusListItem) => {
+  const openEdit = async (c: CactusListItem) => {
+    // The list row has no auction/video details — load them so the form starts fully filled
+    let detail: CactusDetail | null = null;
+    try {
+      const res = await fetch(`/api/cactus/${c.id}`);
+      if (res.ok) detail = await res.json();
+    } catch { /* fall back to list data */ }
+    const auction = detail?.auction;
+    const hours   = auction ? String(Math.max(1, Math.ceil((new Date(auction.endsAt).getTime() - Date.now()) / 3_600_000))) : EMPTY_FORM.auctionHours;
+    editAuctionHours.current = hours;
     setEditTarget(c);
-    setForm({ ...EMPTY_FORM, name: c.name, description: c.description ?? '', categoryId: String(categories.find(cat => cat.name === c.categoryName)?.id ?? ''), basePrice: String(c.basePrice), forAuction: c.hasAuction });
+    setForm({
+      ...EMPTY_FORM,
+      name: c.name, description: c.description ?? '', categoryId: String(c.categoryId ?? ''),
+      basePrice: String(c.basePrice), forAuction: c.hasAuction,
+      startPrice:   auction ? String(auction.startPrice)   : '',
+      bidIncrement: auction ? String(auction.bidIncrement) : EMPTY_FORM.bidIncrement,
+      auctionHours: hours,
+      videoUrl:     detail?.media.find(m => m.type === 'Video')?.url ?? '',
+    });
     setFormErrors({}); setImageFiles([]); setModalMode('edit');
   };
   const closeModal = () => { setModalMode(null); setEditTarget(null); setImageFiles([]); };
@@ -220,7 +238,11 @@ export function AdminPage() {
       fd.append('name', form.name.trim()); fd.append('description', form.description.trim());
       fd.append('categoryId', form.categoryId); fd.append('basePrice', form.basePrice);
       fd.append('forAuction', String(form.forAuction));
-      if (form.forAuction) { fd.append('startPrice', form.startPrice || form.basePrice); fd.append('bidIncrement', form.bidIncrement || '2.50'); fd.append('auctionHours', form.auctionHours || '48'); }
+      if (form.forAuction) {
+        fd.append('startPrice', form.startPrice || form.basePrice); fd.append('bidIncrement', form.bidIncrement || '2.50');
+        // On edit, only send the duration if it was changed, so saving doesn't move a live auction's end time
+        if (modalMode === 'add' || !editTarget?.hasAuction || form.auctionHours !== editAuctionHours.current) fd.append('auctionHours', form.auctionHours || '48');
+      }
       if (form.videoUrl.trim()) fd.append('videoUrl', form.videoUrl.trim());
       // Resize large photos in the browser — the hosting platform caps a request at 4.5 MB
       const photos     = await Promise.all(imageFiles.map(compressImage));
