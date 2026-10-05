@@ -14,7 +14,8 @@ export function useAuction(cactusId: number) {
     try {
       const [a, h] = await Promise.all([
         auctionService.getForCactus(cactusId),
-        auctionService.getHistory(cactusId),
+        // History requires login — a 401 for guests shouldn't hide the auction itself
+        auctionService.getHistory(cactusId).catch((): BidHistory[] => []),
       ]);
       setAuction(a);
       setHistory(h);

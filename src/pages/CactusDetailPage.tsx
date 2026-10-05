@@ -186,15 +186,24 @@ export function CactusDetailPage() {
           setSelectedBid(
             parseFloat((data.auction.currentPrice + data.auction.bidIncrement).toFixed(2)),
           );
-          fetch(`/api/auction/history/${numId}`, { credentials: 'include' })
-            .then(r => r.ok ? r.json() : [])
-            .then(setBidHistory)
-            .catch(() => {});
         }
       })
       .catch(err => setLoadError(err.message))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Bid history is protected — only fetch it for logged-in users, and drop it on logout
+  const auctionCactusId = cactus?.auction ? cactus.id : null;
+  useEffect(() => {
+    setBidHistory([]);
+    if (!isLoggedIn || auctionCactusId === null) return;
+    let cancelled = false;
+    fetch(`/api/auction/history/${auctionCactusId}`, { credentials: 'include' })
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => { if (!cancelled) setBidHistory(rows); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [auctionCactusId, isLoggedIn]);
 
   const countdown = useCountdown(auction?.endsAt ?? null);
 
@@ -428,7 +437,8 @@ export function CactusDetailPage() {
                   </div>
                 )}
 
-                {/* Bid history */}
+                {/* Bid history — logged-in users only */}
+                {isLoggedIn && (
                 <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
                   <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest mb-3">Bid History</p>
                   {bidHistory.length === 0 ? (
@@ -462,6 +472,7 @@ export function CactusDetailPage() {
                     </ul>
                   )}
                 </div>
+                )}
               </div>
             </div>
           )}

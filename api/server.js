@@ -801,9 +801,9 @@ app.post('/api/auction/bid', authenticate, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-//  BID HISTORY
+//  BID HISTORY  (protected — bidder names are only shown to logged-in users)
 // ════════════════════════════════════════════════════════════
-app.get('/api/auction/history/:cactusId', async (req, res) => {
+app.get('/api/auction/history/:cactusId', authenticate, async (req, res) => {
   const cactusId = parseInt(req.params.cactusId);
   try {
     const result = await pool.query(
