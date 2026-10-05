@@ -492,25 +492,25 @@ export function CheckoutPage() {
               <h2 className="font-display text-xl text-gray-900 dark:text-white mb-5">Delivery Address</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="First Name" error={addrErr.firstName}>
-                  <input className={inputCls(addrErr.firstName)} placeholder="Jane" value={address.firstName} onChange={e => setAddress({...address,firstName:e.target.value})} />
+                  <input className={inputCls(addrErr.firstName)} placeholder="First Name" value={address.firstName} onChange={e => setAddress({...address,firstName:e.target.value})} />
                 </Field>
                 <Field label="Last Name" error={addrErr.lastName}>
-                  <input className={inputCls(addrErr.lastName)} placeholder="Smith" value={address.lastName} onChange={e => setAddress({...address,lastName:e.target.value})} />
+                  <input className={inputCls(addrErr.lastName)} placeholder="Last Name" value={address.lastName} onChange={e => setAddress({...address,lastName:e.target.value})} />
                 </Field>
                 <Field label="Email" error={addrErr.email}>
-                  <input type="email" className={inputCls(addrErr.email)} placeholder="jane@example.com" value={address.email} onChange={e => setAddress({...address,email:e.target.value})} />
+                  <input type="email" className={inputCls(addrErr.email)} placeholder="email@gmail.com" value={address.email} onChange={e => setAddress({...address,email:e.target.value})} />
                 </Field>
                 <Field label="Phone">
-                  <input type="tel" className={inputCls()} placeholder="+91 98765 43210" value={address.phone} onChange={e => setAddress({...address,phone:e.target.value})} />
+                  <input type="tel" className={inputCls()} placeholder="+91 78223 77667" value={address.phone} onChange={e => setAddress({...address,phone:e.target.value})} />
                 </Field>
                 <div className="sm:col-span-2">
                   <Field label="Address Line 1" error={addrErr.line1}>
-                    <input className={inputCls(addrErr.line1)} placeholder="123 Desert Road" value={address.line1} onChange={e => setAddress({...address,line1:e.target.value})} />
+                    <input className={inputCls(addrErr.line1)} placeholder="Address Line 1" value={address.line1} onChange={e => setAddress({...address,line1:e.target.value})} />
                   </Field>
                 </div>
                 <div className="sm:col-span-2">
                   <Field label="Address Line 2 (optional)">
-                    <input className={inputCls()} placeholder="Apt, suite…" value={address.line2} onChange={e => setAddress({...address,line2:e.target.value})} />
+                    <input className={inputCls()} placeholder="Address Line 2…" value={address.line2} onChange={e => setAddress({...address,line2:e.target.value})} />
                   </Field>
                 </div>
                 <Field label="Country">
@@ -552,7 +552,7 @@ export function CheckoutPage() {
                   )}
                 </Field>
                 <Field label="ZIP / PIN" error={addrErr.zip}>
-                  <input className={inputCls(addrErr.zip)} placeholder="400001" value={address.zip} onChange={e => setAddress({...address,zip:e.target.value})} />
+                  <input className={inputCls(addrErr.zip)} placeholder="ZIP / PIN" value={address.zip} onChange={e => setAddress({...address,zip:e.target.value})} />
                 </Field>
               </div>
               <div className="flex justify-end mt-6">

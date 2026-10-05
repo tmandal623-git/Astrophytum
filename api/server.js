@@ -51,15 +51,17 @@ app.use(express.static(PUBLIC_DIR));
 // ════════════════════════════════════════════════════════════
 //  DATABASE
 // ════════════════════════════════════════════════════════════
-console.log("POSTGRES_URL exists:", !!process.env.POSTGRES_URL);
-console.log("POSTGRES_URL length:", process.env.POSTGRES_URL?.length);
+const DB_URL = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+if (!DB_URL) {
+  // Without this, pg silently falls back to 127.0.0.1:5432 → ECONNREFUSED on Vercel.
+  console.error('❌ POSTGRES_URL is not set. Add it in Vercel → Settings → Environment Variables and redeploy.');
+}
+const IS_LOCAL_DB = /localhost|127\.0\.0\.1/.test(DB_URL || '');
 
 const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-  // ssl: process.env.POSTGRES_URL?.includes('localhost')
-  //   ? false
-  //   : { rejectUnauthorized: false },
-  ssl: false,
+  connectionString: DB_URL,
+  // Hosted Postgres (Neon/Supabase/Vercel) requires SSL; local Postgres usually doesn't.
+  ssl: IS_LOCAL_DB ? false : { rejectUnauthorized: false },
 });
 
 pool.on('connect', () => console.log('🐘 PostgreSQL connected'));
