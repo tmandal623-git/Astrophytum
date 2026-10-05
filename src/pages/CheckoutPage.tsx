@@ -283,6 +283,9 @@ export function CheckoutPage() {
     if (method !== 'googlepay') setTransactionId('');
   }, [method]);
 
+  // Steps swap in place (no route change), so start each step at the top
+  useEffect(() => { window.scrollTo(0, 0); }, [step]);
+
   if (items.length === 0) {
     return (
       <div className="max-w-3xl mx-auto text-center py-20">

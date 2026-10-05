@@ -4,6 +4,7 @@ import { useLocation, useNavigate }    from 'react-router-dom';
 import { useAuth }                     from '../../context/AuthContext';
 import { useAuthModal }                from '../../context/AuthModalContext';
 import { useToast }                    from '../../context/ToastContext';
+import { useCart }                     from '../../context/CartContext';
 import { cn }                          from '../../utils/cn';
 
 interface HeaderProps {
@@ -36,6 +37,7 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
   const { user, isLoggedIn, logout } = useAuth();
   const { openModal }        = useAuthModal();
   const { showToast }        = useToast();
+  const { totalItems }       = useCart();
 
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef                     = useRef<HTMLDivElement>(null);
@@ -91,16 +93,8 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
         </nav>
       </div>
 
-      {/* ── Right: search + theme + auth ──────────────────── */}
+      {/* ── Right: theme + cart (mobile) + auth ───────────── */}
       <div className="flex items-center gap-2 sm:gap-3">
-
-        {/* Search */}
-        <div className="hidden sm:flex items-center gap-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-400 dark:text-gray-500 cursor-pointer hover:border-cactus-400 transition-colors min-w-[160px]">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
-          </svg>
-          Search…
-        </div>
 
         {/* Dark/Light toggle */}
         <button
@@ -117,6 +111,20 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
           )}>
             {theme === 'dark' ? '🌙' : '☀️'}
           </span>
+        </button>
+
+        {/* Cart (mobile only) */}
+        <button
+          onClick={() => navigate('/my-cart')}
+          aria-label={totalItems > 0 ? `My Cart (${totalItems} items)` : 'My Cart'}
+          className="sm:hidden relative p-1.5 rounded-lg text-lg leading-none hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          🛒
+          {totalItems > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 bg-cactus-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              {totalItems > 9 ? '9+' : totalItems}
+            </span>
+          )}
         </button>
 
         {/* ── Auth area ─────────────────────────────────────── */}
