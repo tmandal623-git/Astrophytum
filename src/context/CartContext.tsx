@@ -18,11 +18,12 @@ export interface CartItem {
   price:        number;
   thumbnailUrl: string | null;
   quantity:     number;
+  stock?:       number;   // units available; undefined = unknown (e.g. old guest cart)
 }
 
 type CartAction =
   | { type: 'SET';        payload: CartItem[] }
-  | { type: 'ADD';        payload: Omit<CartItem, 'quantity'> }
+  | { type: 'ADD';        payload: Omit<CartItem, 'quantity'>; quantity: number }
   | { type: 'REMOVE';     payload: { id: number } }
   | { type: 'UPDATE_QTY'; payload: { id: number; quantity: number } }
   | { type: 'CLEAR' };
@@ -33,8 +34,8 @@ function cartReducer(items: CartItem[], action: CartAction): CartItem[] {
     case 'ADD': {
       const ex = items.find(i => i.id === action.payload.id);
       return ex
-        ? items.map(i => i.id === action.payload.id ? { ...i, quantity: i.quantity + 1 } : i)
-        : [...items, { ...action.payload, quantity: 1 }];
+        ? items.map(i => i.id === action.payload.id ? { ...i, ...action.payload, quantity: i.quantity + action.quantity } : i)
+        : [...items, { ...action.payload, quantity: action.quantity }];
     }
     case 'REMOVE': return items.filter(i => i.id !== action.payload.id);
     case 'UPDATE_QTY':
@@ -52,7 +53,7 @@ interface CartContextValue {
   totalItems:    number;
   subtotal:      number;
   cartLoading:   boolean;
-  addToCart:     (item: Omit<CartItem, 'quantity'>) => Promise<void>;
+  addToCart:     (item: Omit<CartItem, 'quantity'>, qty?: number) => Promise<void>;
   removeFromCart:(id: number) => Promise<void>;
   updateQty:     (id: number, qty: number) => Promise<void>;
   clearCart:     () => Promise<void>;
@@ -98,6 +99,7 @@ function dbRowToCartItem(row: any): CartItem {
     price:        row.price,
     thumbnailUrl: row.thumbnailUrl ?? null,
     quantity:     row.quantity,
+    stock:        row.stock,
   };
 }
 
@@ -156,23 +158,31 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   // ── addToCart ─────────────────────────────────────────────
-  const addToCart = useCallback(async (item: Omit<CartItem, 'quantity'>) => {
+  const addToCart = useCallback(async (item: Omit<CartItem, 'quantity'>, qty = 1) => {
+    if (!Number.isInteger(qty) || qty < 1) throw new Error('Choose a quantity of at least 1');
+    const prevQty = items.find(i => i.id === item.id)?.quantity ?? 0;
+    if (item.stock !== undefined && prevQty + qty > item.stock) {
+      throw new Error(item.stock <= 0
+        ? 'This cactus is sold out'
+        : `Only ${item.stock} available${prevQty ? ` — you already have ${prevQty} in your cart` : ''}`);
+    }
+
     // Optimistic update immediately
-    dispatch({ type: 'ADD', payload: item });
+    dispatch({ type: 'ADD', payload: item, quantity: qty });
 
     if (isLoggedIn) {
       try {
         await apiFetch('/api/cart', {
           method: 'POST',
-          body: JSON.stringify({ cactusId: item.id, quantity: 1 }),
+          body: JSON.stringify({ cactusId: item.id, quantity: qty }),
         });
-      } catch {
+      } catch (err) {
         // Rollback on failure
-        dispatch({ type: 'REMOVE', payload: { id: item.id } });
-        throw new Error('Failed to add to cart');
+        dispatch({ type: 'UPDATE_QTY', payload: { id: item.id, quantity: prevQty } });
+        throw err instanceof Error ? err : new Error('Failed to add to cart');
       }
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, items]);
 
   // ── removeFromCart ────────────────────────────────────────
   const removeFromCart = useCallback(async (id: number) => {
@@ -183,13 +193,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
       try {
         await apiFetch(`/api/cart/${id}`, { method: 'DELETE' });
       } catch {
-        if (prev) dispatch({ type: 'ADD', payload: prev });
+        if (prev) dispatch({ type: 'ADD', payload: prev, quantity: prev.quantity });
       }
     }
   }, [isLoggedIn, items]);
 
   // ── updateQty ─────────────────────────────────────────────
   const updateQty = useCallback(async (id: number, qty: number) => {
+    // Never go above what's in stock
+    const stock = items.find(i => i.id === id)?.stock;
+    if (stock !== undefined && qty > stock) qty = stock;
     dispatch({ type: 'UPDATE_QTY', payload: { id, quantity: qty } });
 
     if (isLoggedIn) {
@@ -202,9 +215,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
             body: JSON.stringify({ quantity: qty }),
           });
         }
-      } catch { /* non-fatal — UI already updated */ }
+      } catch {
+        // Server refused (e.g. stock changed) — resync with the DB cart and its latest stock
+        await loadDbCart();
+      }
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, items]);
 
   // ── clearCart ─────────────────────────────────────────────
   const clearCart = useCallback(async () => {

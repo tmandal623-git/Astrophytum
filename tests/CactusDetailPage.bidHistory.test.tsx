@@ -11,7 +11,7 @@ const auth = vi.hoisted(() => ({ user: null as null | { id: string; username: st
 
 vi.mock('../src/context/AuthContext',      () => ({ useAuth: () => auth }));
 vi.mock('../src/context/AuthModalContext', () => ({ useAuthModal: () => ({ openModal: vi.fn() }) }));
-vi.mock('../src/context/CartContext',      () => ({ useCart: () => ({ addToCart: vi.fn(), isInCart: () => false }) }));
+vi.mock('../src/context/CartContext',      () => ({ useCart: () => ({ addToCart: vi.fn(), isInCart: () => false, items: [] }) }));
 vi.mock('../src/context/ToastContext',     () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 vi.mock('../src/components/cactus/CactusGallery', () => ({ CactusGallery: () => null }));
 

@@ -21,6 +21,7 @@ interface CactusForm {
   description:  string;
   categoryId:   string;
   basePrice:    string;
+  quantity:     string;
   forAuction:   boolean;
   startPrice:   string;
   bidIncrement: string;
@@ -29,7 +30,7 @@ interface CactusForm {
 }
 
 const EMPTY_FORM: CactusForm = {
-  name: '', description: '', categoryId: '', basePrice: '',
+  name: '', description: '', categoryId: '', basePrice: '', quantity: '1',
   forAuction: false, startPrice: '', bidIncrement: '2.50',
   auctionHours: '48', videoUrl: '',
 };
@@ -210,7 +211,7 @@ export function AdminPage() {
     setForm({
       ...EMPTY_FORM,
       name: c.name, description: c.description ?? '', categoryId: String(c.categoryId ?? ''),
-      basePrice: String(c.basePrice), forAuction: c.hasAuction,
+      basePrice: String(c.basePrice), quantity: String(c.quantity ?? 0), forAuction: c.hasAuction,
       startPrice:   auction ? String(auction.startPrice)   : '',
       bidIncrement: auction ? String(auction.bidIncrement) : EMPTY_FORM.bidIncrement,
       auctionHours: hours,
@@ -225,6 +226,8 @@ export function AdminPage() {
     if (!form.name.trim()) errs.name = 'Name is required.';
     if (!form.categoryId) errs.categoryId = 'Select a category.';
     if (isNaN(parseFloat(form.basePrice)) || parseFloat(form.basePrice) < 0) errs.basePrice = 'Enter a valid price ≥ 0.';
+    const qty = Number(form.quantity);
+    if (form.quantity.trim() === '' || !Number.isInteger(qty) || qty < 0) errs.quantity = 'Enter a whole number ≥ 0.';
     if (form.forAuction && isNaN(parseFloat(form.startPrice))) errs.startPrice = 'Starting price required.';
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
@@ -237,6 +240,7 @@ export function AdminPage() {
       const fd = new FormData();
       fd.append('name', form.name.trim()); fd.append('description', form.description.trim());
       fd.append('categoryId', form.categoryId); fd.append('basePrice', form.basePrice);
+      fd.append('quantity', String(Number(form.quantity)));
       fd.append('forAuction', String(form.forAuction));
       if (form.forAuction) {
         fd.append('startPrice', form.startPrice || form.basePrice); fd.append('bidIncrement', form.bidIncrement || '2.50');
@@ -502,13 +506,13 @@ export function AdminPage() {
         ) : (
           <>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
-                  {['Name','Category','Price','Rating','Auction','Actions'].map(h => (
+                  {['Name','Category','Price','Stock','Rating','Auction','Actions'].map(h => (
                     <th key={h} className={cn(
                       'px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider',
-                      h === 'Price' || h === 'Rating' ? 'text-right' : h === 'Auction' ? 'text-center' : 'text-left',
+                      h === 'Price' || h === 'Stock' || h === 'Rating' ? 'text-right' : h === 'Auction' ? 'text-center' : 'text-left',
                     )}>{h}</th>
                   ))}
                 </tr>
@@ -529,6 +533,11 @@ export function AdminPage() {
                     </td>
                     <td className="px-4 py-3"><Badge variant="success">{c.categoryName}</Badge></td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">₹{Number(c.basePrice).toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {c.quantity > 0
+                        ? <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{c.quantity}</span>
+                        : <Badge variant="outline">Sold Out</Badge>}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {c.ratingCount > 0 ? (
                         <div className="flex items-center justify-end gap-1">
@@ -844,6 +853,11 @@ export function AdminPage() {
                     onChange={e => setForm({ ...form, basePrice: e.target.value })}
                     className={cn(inputCls(formErrors.basePrice), 'pl-7')} />
                 </div>
+              </Field>
+
+              <Field label="Stock Quantity" required error={formErrors.quantity} hint="Units available to buy — 0 shows as Sold Out">
+                <input type="number" min="0" step="1" placeholder="1" value={form.quantity}
+                  onChange={e => setForm({ ...form, quantity: e.target.value })} className={inputCls(formErrors.quantity)} />
               </Field>
 
               <Field label="Care Guide Video URL" hint="YouTube embed URL (optional)">

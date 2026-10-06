@@ -36,6 +36,7 @@ export interface CactusListItem {
   thumbnailUrl: string | null;
   rating:       number;    // 0–5, default 0
   ratingCount:  number;    // total number of ratings
+  quantity:     number;    // units in stock; 0 = sold out
 }
 
 // Full detail returned by GET /api/cactus/:id
@@ -49,6 +50,7 @@ export interface CactusDetail {
   createdAt:    string;
   rating:       number;
   ratingCount:  number;
+  quantity:     number;    // units in stock; 0 = sold out
   media:        MediaItem[];
   auction:      AuctionInfo | null;
 }

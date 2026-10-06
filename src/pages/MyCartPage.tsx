@@ -31,6 +31,7 @@ export function MyCartPage() {
   const shipping     = discounted >= SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
   const tax          = discounted * TAX_RATE;
   const total        = discounted + shipping + tax;
+  const overStock    = items.some(i => i.stock !== undefined && i.quantity > i.stock);
 
   // ── Handlers ───────────────────────────────────────────────
   const handleApplyPromo = () => {
@@ -141,6 +142,11 @@ export function MyCartPage() {
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900 dark:text-white truncate">{item.name}</p>
                       <p className="text-xs text-cactus-600 dark:text-cactus-400 mt-0.5">{item.categoryName}</p>
+                      {item.stock !== undefined && item.quantity > item.stock && (
+                        <p className="text-xs text-red-500 mt-0.5">
+                          {item.stock <= 0 ? 'Sold out — remove to check out' : `Only ${item.stock} left — reduce quantity to check out`}
+                        </p>
+                      )}
                     </div>
                     <button
                       onClick={() => { removeFromCart(item.id); showToast(`${item.name} removed.`); }}
@@ -167,7 +173,9 @@ export function MyCartPage() {
                       </span>
                       <button
                         onClick={() => updateQty(item.id, item.quantity + 1)}
-                        className="w-8 h-8 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none"
+                        disabled={item.stock !== undefined && item.quantity >= item.stock}
+                        title={item.stock !== undefined && item.quantity >= item.stock ? `Only ${item.stock} available` : undefined}
+                        className="w-8 h-8 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         +
                       </button>
@@ -265,7 +273,9 @@ export function MyCartPage() {
 
             <button
               onClick={() => navigate('/checkout')}
-              className="w-full py-3.5 rounded-xl bg-cactus-600 hover:bg-cactus-700 active:bg-cactus-800 text-white font-semibold text-base transition-all duration-200 shadow-sm hover:shadow-md mt-1"
+              disabled={overStock}
+              title={overStock ? 'Some items exceed available stock' : undefined}
+              className="w-full py-3.5 rounded-xl bg-cactus-600 hover:bg-cactus-700 active:bg-cactus-800 text-white font-semibold text-base transition-all duration-200 shadow-sm hover:shadow-md mt-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-cactus-600"
             >
               Proceed to Checkout →
             </button>

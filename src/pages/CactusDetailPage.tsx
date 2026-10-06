@@ -140,6 +140,16 @@ function Accordion({
   );
 }
 
+// Cart payload for a cactus — carries its stock so the cart can cap quantities
+function cartItemFor(cactus: CactusDetail) {
+  return {
+    id: cactus.id, name: cactus.name, categoryName: cactus.categoryName,
+    price: Number(cactus.basePrice),
+    thumbnailUrl: cactus.media.find(m => m.type === 'Image')?.url ?? null,
+    stock: cactus.quantity,
+  };
+}
+
 // ── Main ──────────────────────────────────────────────────────
 export function CactusDetailPage() {
   const { id }   = useParams<{ id: string }>();
@@ -147,7 +157,7 @@ export function CactusDetailPage() {
 
   const { user, isLoggedIn } = useAuth();
   const { openModal }        = useAuthModal();
-  const { addToCart, isInCart } = useCart();
+  const { addToCart, isInCart, items } = useCart();
   const { showToast }           = useToast();
 
   const [cactus,      setCactus]      = useState<CactusDetail | null>(null);
@@ -160,8 +170,18 @@ export function CactusDetailPage() {
   const [bidSuccess,  setBidSuccess]  = useState(false);
   const [bidError,    setBidError]    = useState('');
   const [adding,      setAdding]      = useState(false);
+  const [qty,         setQty]         = useState(1);
 
-  const inCart = cactus ? isInCart(cactus.id) : false;
+  const inCart    = cactus ? isInCart(cactus.id) : false;
+  const stock     = cactus?.quantity ?? 0;
+  const soldOut   = stock <= 0;
+  const inCartQty = items.find(i => i.id === cactus?.id)?.quantity ?? 0;
+  const maxQty    = Math.max(0, stock - inCartQty);   // most that can still be added
+
+  // Keep the selected quantity inside what's actually available
+  useEffect(() => {
+    setQty(q => Math.min(Math.max(q, 1), Math.max(maxQty, 1)));
+  }, [maxQty]);
 
   useEffect(() => {
     if (!id) return;
@@ -173,6 +193,7 @@ export function CactusDetailPage() {
     setCactus(null);
     setAuction(null);
     setBidHistory([]);
+    setQty(1);
 
     fetch(`/api/cactus/${numId}`, { credentials: 'include' })
       .then(async res => {
@@ -253,16 +274,12 @@ export function CactusDetailPage() {
       openModal('Please log in to add items to your cart. Your cart is saved across sessions.', 'login');
       return;
     }
-    if (!cactus) return;
+    if (!cactus || soldOut) return;
     if (inCart) { navigate('/my-cart'); return; }
     setAdding(true);
     try {
-      await addToCart({
-        id: cactus.id, name: cactus.name, categoryName: cactus.categoryName,
-        price: Number(cactus.basePrice),
-        thumbnailUrl: cactus.media.find(m => m.type === 'Image')?.url ?? null,
-      });
-      showToast(`${cactus.name} added to cart 🛒`);
+      await addToCart(cartItemFor(cactus), qty);
+      showToast(`${qty > 1 ? `${qty} × ` : ''}${cactus.name} added to cart 🛒`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to add to cart', 'error');
     } finally {
@@ -275,14 +292,16 @@ export function CactusDetailPage() {
       openModal('Please log in to purchase. Your orders are saved to your account.', 'login');
       return;
     }
-    if (!cactus) return;
-    try {
-      await addToCart({
-        id: cactus.id, name: cactus.name, categoryName: cactus.categoryName,
-        price: Number(cactus.basePrice),
-        thumbnailUrl: cactus.media.find(m => m.type === 'Image')?.url ?? null,
-      });
-    } catch { /* non-fatal */ }
+    if (!cactus || soldOut) return;
+    // Already in the cart → go straight to checkout with the quantity chosen there
+    if (!inCart) {
+      try {
+        await addToCart(cartItemFor(cactus), qty);
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : 'Failed to add to cart', 'error');
+        return;
+      }
+    }
     navigate('/checkout');
   };
 
@@ -482,14 +501,58 @@ export function CactusDetailPage() {
           ══════════════════════════════════════════════════ */}
           {!auction && (
             <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-5 flex flex-col gap-4">
-              <div className="flex items-center gap-2 text-sm text-cactus-600 dark:text-cactus-400 font-medium">
-                <span className="w-2 h-2 rounded-full bg-cactus-500 inline-block" />
-                In stock — ships within 3 business days
-              </div>
+              {soldOut ? (
+                <div className="flex items-center gap-2 text-sm text-red-500 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                  Sold out — check back soon
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-cactus-600 dark:text-cactus-400 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-cactus-500 inline-block" />
+                  In stock ({stock} available) — ships within 3 business days
+                </div>
+              )}
 
+              {soldOut ? (
+                <button
+                  disabled
+                  className="w-full py-3.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 font-semibold text-base cursor-not-allowed"
+                >
+                  Sold Out
+                </button>
+              ) : (
+              <>
               {!isLoggedIn && (
                 <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2 text-center">
                   🔒 Log in to purchase — your cart and orders are saved to your account
+                </div>
+              )}
+
+              {/* Quantity — once in the cart, the quantity is changed on the cart page */}
+              {!inCart && (
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
+                  <div className="flex items-center gap-1 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setQty(q => Math.max(1, q - 1))}
+                      disabled={qty <= 1}
+                      aria-label="Decrease quantity"
+                      className="w-9 h-9 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      −
+                    </button>
+                    <span className="w-10 text-center text-sm font-medium text-gray-900 dark:text-white" aria-live="polite">
+                      {qty}
+                    </span>
+                    <button
+                      onClick={() => setQty(q => Math.min(maxQty, q + 1))}
+                      disabled={qty >= maxQty}
+                      aria-label="Increase quantity"
+                      className="w-9 h-9 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -510,9 +573,9 @@ export function CactusDetailPage() {
                 ) : inCart ? (
                   <>✓ In Cart — <span className="underline text-sm cursor-pointer" onClick={e => { e.stopPropagation(); navigate('/my-cart'); }}>View Cart</span></>
                 ) : isLoggedIn ? (
-                  `Add to Cart — ₹${Number(cactus.basePrice).toFixed(2)}`
+                  `Add to Cart — ₹${(Number(cactus.basePrice) * qty).toFixed(2)}`
                 ) : (
-                  `Log In to Add — ₹${Number(cactus.basePrice).toFixed(2)}`
+                  `Log In to Add — ₹${(Number(cactus.basePrice) * qty).toFixed(2)}`
                 )}
               </button>
 
@@ -523,6 +586,8 @@ export function CactusDetailPage() {
               >
                 {isLoggedIn ? 'Buy Now' : 'Log In to Buy'}
               </button>
+              </>
+              )}
 
               {/* Guarantees */}
               <div className="grid grid-cols-3 gap-2 pt-1 border-t border-gray-100 dark:border-gray-800">

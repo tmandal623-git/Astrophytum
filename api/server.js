@@ -83,6 +83,23 @@ function sendAuthCookie(res, token) {
   });
 }
 
+// ── Inventory helpers ─────────────────────────────────────────
+// Admin stock input → whole number ≥ 0, or null if invalid
+function parseStock(raw) {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+// Error message when `wanted` units exceed `stock`, else null.
+// `inCart` explains a refused add-to-cart when some of the stock is already in the cart.
+function checkStock(stock, wanted, inCart = 0) {
+  if (stock <= 0) return 'This cactus is sold out';
+  if (wanted <= stock) return null;
+  return inCart > 0
+    ? `Only ${stock} available — you already have ${inCart} in your cart`
+    : `Only ${stock} available`;
+}
+
 // ── authenticate middleware ───────────────────────────────────
 // Besides verifying the JWT, rejects tokens issued before the user's last
 // password change — so a password reset signs out every existing session.
@@ -464,6 +481,7 @@ app.get('/api/cactus', async (req, res) => {
              cat.name AS "categoryName", cat.id AS "categoryId",
              COALESCE(c.rating,0)::float AS "rating",
              COALESCE(c.rating_count,0)::int AS "ratingCount",
+             c.quantity,
              (SELECT url FROM media WHERE cactus_id=c.id AND type='Image' ORDER BY sort_order ASC NULLS LAST LIMIT 1) AS "thumbnailUrl",
              CASE WHEN EXISTS (SELECT 1 FROM auction a WHERE a.cactus_id=c.id AND a.is_active=true AND a.ends_at>NOW())
                THEN true ELSE false END AS "hasAuction"
@@ -496,6 +514,7 @@ app.get('/api/cactus/:id', async (req, res) => {
               c.category_id AS "categoryId", c.created_at AS "createdAt",
               COALESCE(c.rating,0)::float AS "rating",
               COALESCE(c.rating_count,0)::int AS "ratingCount",
+              c.quantity,
               cat.name AS "categoryName"
        FROM cactus c LEFT JOIN categories cat ON cat.id=c.category_id WHERE c.id=$1`, [id]);
     if (!cactusRes.rows.length) return res.status(404).json({ error: `Cactus ${id} not found` });
@@ -532,11 +551,16 @@ app.post('/api/cactus', authenticate, requireAdmin, async (req, res) => {
     const bidIncrement = parseFloat(str(fields.bidIncrement) || '2.5');
     const auctionHours = parseFloat(str(fields.auctionHours) || '48');
     const videoUrl = str(fields.videoUrl)?.trim();
+    const quantity = str(fields.quantity) === '' ? 1 : parseStock(str(fields.quantity));
     const imageFiles = (Array.isArray(files.images) ? files.images : [files.images]).filter(f => f?.size > 0);
 
     if (!name || isNaN(categoryId) || isNaN(basePrice)) {
       await removeTempFiles(imageFiles);
       return res.status(400).json({ error: 'name, categoryId and basePrice are required' });
+    }
+    if (quantity === null) {
+      await removeTempFiles(imageFiles);
+      return res.status(400).json({ error: 'quantity must be a whole number ≥ 0' });
     }
 
     console.log(`📸 Creating cactus "${name}" with ${imageFiles.length} image(s)`);
@@ -553,8 +577,8 @@ app.post('/api/cactus', authenticate, requireAdmin, async (req, res) => {
     try {
       await client.query('BEGIN');
       const { rows } = await client.query(
-        `INSERT INTO cactus (name, description, category_id, base_price) VALUES ($1,$2,$3,$4) RETURNING id`,
-        [name, description || null, categoryId, basePrice]);
+        `INSERT INTO cactus (name, description, category_id, base_price, quantity) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [name, description || null, categoryId, basePrice, quantity]);
       const cactusId = rows[0].id;
 
       for (let i = 0; i < imageUrls.length; i++) {
@@ -597,10 +621,15 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
     const bidIncrement = parseFloat(str(fields.bidIncrement) || '2.5');
     const auctionHours = str(fields.auctionHours) ? parseFloat(str(fields.auctionHours)) : null;   // omitted = keep end time
     const videoUrl = str(fields.videoUrl)?.trim();
+    const quantity = str(fields.quantity) === '' ? undefined : parseStock(str(fields.quantity));    // omitted = keep stock
     const imageFiles = (Array.isArray(files.images) ? files.images : [files.images]).filter(f => f?.size > 0);
     if (!name || isNaN(categoryId) || isNaN(basePrice)) {
       await removeTempFiles(imageFiles);
       return res.status(400).json({ error: 'name, categoryId and basePrice are required' });
+    }
+    if (quantity === null) {
+      await removeTempFiles(imageFiles);
+      return res.status(400).json({ error: 'quantity must be a whole number ≥ 0' });
     }
 
     let imageUrls;
@@ -615,8 +644,8 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
     try {
       await client.query('BEGIN');
       const result = await client.query(
-        `UPDATE cactus SET name=$1, description=$2, category_id=$3, base_price=$4, updated_at=NOW() WHERE id=$5`,
-        [name, description || null, categoryId, basePrice, id]);
+        `UPDATE cactus SET name=$1, description=$2, category_id=$3, base_price=$4, quantity=COALESCE($6, quantity), updated_at=NOW() WHERE id=$5`,
+        [name, description || null, categoryId, basePrice, id, quantity ?? null]);
       if (!result.rowCount) throw new Error(`Cactus ${id} not found`);
       for (let i = 0; i < imageUrls.length; i++) {
         const { rows } = await client.query(`SELECT COALESCE(MAX(sort_order),-1)+1 AS next FROM media WHERE cactus_id=$1`, [id]);
@@ -822,7 +851,7 @@ app.get('/api/cart', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT ci.id, ci.quantity, c.id AS "cactusId", c.name, c.description,
-              c.base_price::float AS "price", cat.name AS "categoryName",
+              c.base_price::float AS "price", cat.name AS "categoryName", c.quantity AS "stock",
               (SELECT url FROM media WHERE cactus_id=c.id AND type='Image' ORDER BY sort_order ASC NULLS LAST LIMIT 1) AS "thumbnailUrl"
        FROM cart_items ci JOIN cactus c ON c.id=ci.cactus_id JOIN categories cat ON cat.id=c.category_id
        WHERE ci.user_id=$1 ORDER BY ci.added_at DESC`, [req.userId]);
@@ -836,7 +865,15 @@ app.get('/api/cart', authenticate, async (req, res) => {
 app.post('/api/cart', authenticate, async (req, res) => {
   const { cactusId, quantity = 1 } = req.body ?? {};
   if (!cactusId) return res.status(400).json({ error: 'cactusId is required' });
+  if (!Number.isInteger(quantity) || quantity < 1) return res.status(400).json({ error: 'quantity must be a whole number ≥ 1' });
   try {
+    const { rows: stockRows } = await pool.query(
+      `SELECT c.quantity AS stock, COALESCE(ci.quantity,0) AS "inCart"
+       FROM cactus c LEFT JOIN cart_items ci ON ci.cactus_id=c.id AND ci.user_id=$2 WHERE c.id=$1`, [cactusId, req.userId]);
+    if (!stockRows.length) return res.status(404).json({ error: 'Cactus not found' });
+    const stockError = checkStock(stockRows[0].stock, stockRows[0].inCart + quantity, stockRows[0].inCart);
+    if (stockError) return res.status(409).json({ error: stockError });
+
     const { rows } = await pool.query(
       `INSERT INTO cart_items (user_id, cactus_id, quantity) VALUES ($1,$2,$3)
        ON CONFLICT (user_id, cactus_id) DO UPDATE SET quantity=cart_items.quantity+EXCLUDED.quantity, added_at=NOW()
@@ -851,8 +888,13 @@ app.post('/api/cart', authenticate, async (req, res) => {
 app.put('/api/cart/:cactusId', authenticate, async (req, res) => {
   const cactusId = parseInt(req.params.cactusId);
   const { quantity } = req.body ?? {};
-  if (!quantity || quantity < 1) return res.status(400).json({ error: 'quantity >= 1 required' });
+  if (!Number.isInteger(quantity) || quantity < 1) return res.status(400).json({ error: 'quantity must be a whole number ≥ 1' });
   try {
+    const { rows: stockRows } = await pool.query(`SELECT quantity AS stock FROM cactus WHERE id=$1`, [cactusId]);
+    if (!stockRows.length) return res.status(404).json({ error: 'Cactus not found' });
+    const stockError = checkStock(stockRows[0].stock, quantity);
+    if (stockError) return res.status(409).json({ error: stockError });
+
     await pool.query(`UPDATE cart_items SET quantity=$1 WHERE user_id=$2 AND cactus_id=$3`, [quantity, req.userId, cactusId]);
     res.json({ message: 'Updated' });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -897,6 +939,9 @@ app.post('/api/orders', authenticate, async (req, res) => {
 
   if (req.userId !== userId)
     return res.status(403).json({ error: 'User ID mismatch' });
+
+  if (!items.every(i => Number.isInteger(i?.quantity) && i.quantity >= 1))
+    return res.status(400).json({ error: 'Each item quantity must be a whole number ≥ 1' });
 
   // Validate Google Pay orders must have a transaction ID
   if (paymentMethod === 'googlepay') {
@@ -944,6 +989,22 @@ app.post('/api/orders', authenticate, async (req, res) => {
     const orderId = rows[0].id;
 
     for (const item of items) {
+      // Take the stock atomically — the row lock queues concurrent orders,
+      // and the WHERE clause refuses to take stock below zero.
+      const reserved = await client.query(
+        `UPDATE cactus SET quantity = quantity - $1, updated_at = NOW()
+         WHERE id = $2::int AND quantity >= $1 RETURNING quantity`,
+        [item.quantity, item.cactusId],
+      );
+      if (!reserved.rowCount) {
+        const { rows: cur } = await client.query(`SELECT name, quantity FROM cactus WHERE id=$1::int`, [item.cactusId]);
+        const err = new Error(cur.length
+          ? `${cur[0].name}: ${checkStock(cur[0].quantity, item.quantity)}`
+          : `Cactus ${item.cactusId} no longer exists`);
+        err.status = cur.length ? 409 : 400;
+        throw err;
+      }
+
       await client.query(
         `INSERT INTO order_items (order_id, cactus_id, quantity, unit_price)
          VALUES ($1, $2::int, $3::int, $4::numeric)`,
@@ -963,7 +1024,7 @@ app.post('/api/orders', authenticate, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('❌ POST /api/orders:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status ?? 500).json({ error: err.message });
   } finally {
     client.release();
   }
@@ -1056,8 +1117,8 @@ app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
     try {
       await client.query('BEGIN');
 
-      // Update order statuses
-      await client.query(
+      // Update order statuses — re-checked here so the same order can't be processed twice
+      const updated = await client.query(
         `UPDATE orders
          SET payment_status = $1,
              order_status   = $2,
@@ -1066,9 +1127,24 @@ app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
              verified_by    = $3,
              rejection_note = $4,
              updated_at     = NOW()
-         WHERE id = $5`,
+         WHERE id = $5 AND payment_status = 'pending_verification'`,
         [paymentStatus, orderStatus, req.userId, note ?? null, orderId],
       );
+      if (!updated.rowCount) {
+        const err = new Error('Order was already processed');
+        err.status = 409;
+        throw err;
+      }
+
+      // Rejected payment → put the stock taken by this order back on sale
+      if (action === 'rejected') {
+        await client.query(
+          `UPDATE cactus c SET quantity = c.quantity + oi.qty, updated_at = NOW()
+           FROM (SELECT cactus_id, SUM(quantity)::int AS qty FROM order_items WHERE order_id=$1 GROUP BY cactus_id) oi
+           WHERE c.id = oi.cactus_id`,
+          [orderId],
+        );
+      }
 
       // Write audit log
       await client.query(
@@ -1094,7 +1170,7 @@ app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
     }
   } catch (err) {
     console.error('POST /api/admin/verify-payment:', err.message);
-    res.status(500).json({ error: err.message });
+    res.status(err.status ?? 500).json({ error: err.message });
   }
 });
 
@@ -1163,6 +1239,8 @@ async function ensureSchema() {
     )`);
   // NULL = never changed → all existing tokens stay valid
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ`);
+  // Available stock per cactus — existing listings start with 1 plant each
+  await pool.query(`ALTER TABLE cactus ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 0)`);
 }
 ensureSchema().catch(err => console.error('⚠️  ensureSchema failed:', err.message));
 
