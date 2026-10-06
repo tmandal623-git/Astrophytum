@@ -503,13 +503,13 @@ export function CactusDetailPage() {
           {!auction && (
             <div className="border border-gray-200 dark:border-gray-700 rounded-xl p-5 flex flex-col gap-4">
               {soldOut ? (
-                <div className="flex items-center gap-2 text-sm text-red-500 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+                <div className="w-full sm:w-2/3 sm:mx-auto flex items-center gap-2 text-sm text-red-500 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-red-500 inline-block flex-shrink-0" />
                   Sold out — check back soon
                 </div>
               ) : (
-                <div className="flex items-center gap-2 text-sm text-cactus-600 dark:text-cactus-400 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-cactus-500 inline-block" />
+                <div className="w-full sm:w-2/3 sm:mx-auto flex items-center gap-2 text-sm text-cactus-600 dark:text-cactus-400 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-cactus-500 inline-block flex-shrink-0" />
                   In stock{stock !== undefined && ` (${stock} available)`} — ships within 3 business days
                 </div>
               )}
@@ -517,28 +517,28 @@ export function CactusDetailPage() {
               {soldOut ? (
                 <button
                   disabled
-                  className="w-full py-3.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 font-semibold text-base cursor-not-allowed"
+                  className="w-full sm:w-2/3 sm:mx-auto py-3.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 font-semibold text-base cursor-not-allowed"
                 >
                   Sold Out
                 </button>
               ) : (
               <>
               {!isLoggedIn && (
-                <div className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2 text-center">
+                <div className="w-full sm:w-2/3 sm:mx-auto text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 border border-amber-100 dark:border-amber-900 rounded-lg px-3 py-2 text-center">
                   🔒 Log in to purchase — your cart and orders are saved to your account
                 </div>
               )}
 
               {/* Quantity — once in the cart, the quantity is changed on the cart page */}
               {!inCart && (
-                <div className="flex items-center justify-between">
+                <div className="w-full sm:w-2/3 sm:mx-auto flex items-center justify-between">
                   <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
                   <div className="flex items-center gap-1 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                     <button
                       onClick={() => setQty(q => Math.max(1, q - 1))}
                       disabled={qty <= 1}
                       aria-label="Decrease quantity"
-                      className="w-9 h-9 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-8 h-7 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       −
                     </button>
@@ -549,7 +549,7 @@ export function CactusDetailPage() {
                       onClick={() => setQty(q => Math.min(maxQty, q + 1))}
                       disabled={qty >= maxQty}
                       aria-label="Increase quantity"
-                      className="w-9 h-9 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-8 h-7 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg leading-none disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       +
                     </button>
@@ -562,7 +562,7 @@ export function CactusDetailPage() {
                 onClick={handleAddToCart}
                 disabled={adding}
                 className={cn(
-                  'w-full py-3.5 rounded-xl font-semibold text-base border-2 transition-all duration-200 flex items-center justify-center gap-2',
+                  'w-full sm:w-2/3 sm:mx-auto py-3.5 rounded-xl font-semibold text-base border-2 transition-all duration-200 flex items-center justify-center gap-2',
                   inCart
                     ? 'border-cactus-300 dark:border-cactus-700 bg-cactus-50 dark:bg-cactus-950 text-cactus-700 dark:text-cactus-300'
                     : 'border-cactus-600 text-cactus-600 dark:text-cactus-400 hover:bg-cactus-50 dark:hover:bg-cactus-950',
@@ -583,7 +583,7 @@ export function CactusDetailPage() {
               {/* Buy Now */}
               <button
                 onClick={handleBuyNow}
-                className="w-full py-3.5 rounded-xl bg-cactus-600 hover:bg-cactus-700 active:bg-cactus-800 text-white font-semibold text-base transition-all duration-200 shadow-sm hover:shadow-md"
+                className="w-full sm:w-2/3 sm:mx-auto py-3.5 rounded-xl bg-cactus-600 hover:bg-cactus-700 active:bg-cactus-800 text-white font-semibold text-base transition-all duration-200 shadow-sm hover:shadow-md"
               >
                 {isLoggedIn ? 'Buy Now' : 'Log In to Buy'}
               </button>
