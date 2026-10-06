@@ -7,6 +7,7 @@ import { useId } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CactusListItem } from '../../types';
 import { Badge } from '../ui/Badge';
+import { isSoldOut } from '../../utils/stock';
 
 interface CactusCardProps {
   cactus: CactusListItem;
@@ -145,7 +146,7 @@ export function CactusCard({ cactus }: CactusCardProps) {
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
               Live
             </span>
-          ) : cactus.quantity <= 0 ? (
+          ) : isSoldOut(cactus.quantity) ? (
             <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2.5 py-1 rounded-full">
               Sold Out
             </span>

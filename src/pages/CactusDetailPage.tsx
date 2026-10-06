@@ -15,6 +15,7 @@ import { CactusGallery }         from '../components/cactus/CactusGallery';
 import { Badge }                 from '../components/ui/Badge';
 import { CactusDetailSkeleton }  from '../components/ui/LoadingSkeleton';
 import { cn }                    from '../utils/cn';
+import { isSoldOut }             from '../utils/stock';
 
 // ── Care tips by category ─────────────────────────────────────
 const CARE_TIPS: Record<string, { icon: string; title: string; detail: string }[]> = {
@@ -173,10 +174,10 @@ export function CactusDetailPage() {
   const [qty,         setQty]         = useState(1);
 
   const inCart    = cactus ? isInCart(cactus.id) : false;
-  const stock     = cactus?.quantity ?? 0;
-  const soldOut   = stock <= 0;
+  const stock     = cactus?.quantity;                 // undefined = unknown (API out of date)
+  const soldOut   = isSoldOut(stock);
   const inCartQty = items.find(i => i.id === cactus?.id)?.quantity ?? 0;
-  const maxQty    = Math.max(0, stock - inCartQty);   // most that can still be added
+  const maxQty    = stock === undefined ? 1 : Math.max(0, stock - inCartQty);   // most that can still be added
 
   // Keep the selected quantity inside what's actually available
   useEffect(() => {
@@ -509,7 +510,7 @@ export function CactusDetailPage() {
               ) : (
                 <div className="flex items-center gap-2 text-sm text-cactus-600 dark:text-cactus-400 font-medium">
                   <span className="w-2 h-2 rounded-full bg-cactus-500 inline-block" />
-                  In stock ({stock} available) — ships within 3 business days
+                  In stock{stock !== undefined && ` (${stock} available)`} — ships within 3 business days
                 </div>
               )}
 
