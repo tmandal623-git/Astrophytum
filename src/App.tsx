@@ -13,6 +13,7 @@ import { MyBidsPage }          from './pages/MyBidsPage';
 import { MyCartPage }          from './pages/MyCartPage';
 import { CheckoutPage }        from './pages/CheckoutPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
+import { OrderDetailsPage }    from './pages/OrderDetailsPage';
 import { AdminPage }           from './pages/AdminPage';
 import { ProfilePage }         from './pages/ProfilePage';
 import { AdminRoute }          from './components/auth/AdminRoute';
@@ -41,7 +42,8 @@ export default function App() {
                     <Route path="/cactus/:id"       element={<CactusDetailPage />} />
                     <Route path="/auctions"         element={<AuctionsPage />} />
                     <Route path="/my-orders"        element={<Navigate to="/profile?tab=orders" />} />
-                    <Route path="/my-bids"          element={<Navigate to="/profile?tab=bids" />} />
+                    <Route path="/orders/:id"       element={<OrderDetailsPage />} />
+                    <Route path="/my-bids"         element={<Navigate to="/profile?tab=bids" />} />
                     <Route path="/my-cart"          element={<MyCartPage />} />
                     <Route path="/checkout"         element={<CheckoutPage />} />
                     <Route path="/order-confirmed"  element={<OrderConfirmationPage />} />

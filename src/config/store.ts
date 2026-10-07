@@ -16,3 +16,11 @@ export const SHIPPING_COST      = 9.99;   // flat shipping fee below the thresho
 export const RETURN_WINDOW_DAYS = 7;      // matches "7-day returns" on the product page
 export const DAMAGE_REPORT_HOURS = 48;    // live plant guarantee claim window
 export const SHIPPING_COUNTRIES = ['India', 'United States', 'Canada', 'United Kingdom', 'Australia'];
+
+// ── Payment methods (labels on order confirmation and order details) ──
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  card:      'Credit / Debit Card',
+  paypal:    'PayPal',
+  applepay:  'Apple Pay',
+  googlepay: 'Google Pay',
+};

@@ -20,6 +20,7 @@ const BREADCRUMBS: Record<string, string> = {
   '/my-cart':        'My Cart',
   '/checkout':       'Checkout',
   '/order-confirmed':'Order Confirmed',
+  '/orders':         'Order Details',
   '/admin':          'Admin Dashboard',
   '/profile':        'My Profile',
   '/reset-password': 'Reset Password',

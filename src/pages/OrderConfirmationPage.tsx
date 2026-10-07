@@ -1,6 +1,7 @@
 // src/pages/OrderConfirmationPage.tsx
 import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { PAYMENT_METHOD_LABELS } from '../config/store';
 
 interface OrderState {
   orderNumber: string;
@@ -50,13 +51,6 @@ function Confetti() {
     </div>
   );
 }
-
-const METHOD_LABELS: Record<string, string> = {
-  card:      'Credit / Debit Card',
-  paypal:    'PayPal',
-  applepay:  'Apple Pay',
-  googlepay: 'Google Pay',
-};
 
 export function OrderConfirmationPage() {
   const navigate  = useNavigate();
@@ -180,7 +174,7 @@ export function OrderConfirmationPage() {
           </div>
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">💳 Payment</p>
-            <p className="text-sm text-gray-700 dark:text-gray-300">{METHOD_LABELS[order.method] ?? order.method}</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">{PAYMENT_METHOD_LABELS[order.method] ?? order.method}</p>
             <p className="text-xs text-gray-400 mt-1">Charged successfully</p>
           </div>
         </div>

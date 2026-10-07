@@ -443,6 +443,72 @@ app.get('/api/auth/my-orders', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ════════════════════════════════════════════════════════════
+//  AUTH — MY ORDER DETAILS  (protected, owner only)
+// ════════════════════════════════════════════════════════════
+app.get('/api/auth/my-orders/:id', authenticate, async (req, res) => {
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId) || orderId < 1)
+    return res.status(400).json({ error: 'Invalid order id' });
+
+  try {
+    // Scoped to the requester — someone else's order looks the same as a missing one
+    const orderResult = await pool.query(
+      `SELECT
+         o.id,
+         o.status,
+         o.order_status   AS "orderStatus",
+         o.payment_status AS "paymentStatus",
+         o.subtotal::float,
+         o.shipping::float,
+         o.tax::float,
+         o.total::float,
+         o.payment_method AS "paymentMethod",
+         o.transaction_id AS "transactionId",
+         o.rejection_note AS "rejectionNote",
+         o.verified_at    AS "verifiedAt",
+         o.created_at     AS "createdAt",
+         o.first_name     AS "firstName",
+         o.last_name      AS "lastName",
+         o.email,
+         o.phone,
+         o.address_line1  AS "addressLine1",
+         o.address_line2  AS "addressLine2",
+         o.city,
+         o.state,
+         o.zip,
+         o.country
+       FROM orders o
+       WHERE o.id = $1 AND o.user_id = $2`,
+      [orderId, req.userId],
+    );
+    if (!orderResult.rows.length) return res.status(404).json({ error: 'Order not found' });
+
+    const itemsResult = await pool.query(
+      `SELECT
+         oi.quantity,
+         oi.unit_price::float AS "unitPrice",
+         c.name,
+         c.id          AS "cactusId",
+         (SELECT url FROM media WHERE cactus_id=c.id AND type='Image'
+          ORDER BY sort_order ASC NULLS LAST LIMIT 1) AS "thumbnailUrl"
+       FROM order_items oi
+       JOIN cactus c ON c.id = oi.cactus_id
+       WHERE oi.order_id = $1
+       ORDER BY oi.id`,
+      [orderId],
+    );
+
+    res.json({
+      ...orderResult.rows[0],
+      items:       itemsResult.rows,
+      orderNumber: `CM-${String(orderId).padStart(6, '0')}`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 // ════════════════════════════════════════════════════════════
 //  CATEGORIES
 // ════════════════════════════════════════════════════════════
