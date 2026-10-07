@@ -10,6 +10,7 @@ import { useToast } from '../context/ToastContext';
 import { cn }       from '../utils/cn';
 import { compressImage, MAX_UPLOAD_BYTES } from '../utils/compressImage';
 import { PaymentVerificationSection }  from '../components/admin/PaymentVerificationSection';
+import { ShipmentManagementSection }   from '../components/admin/ShipmentManagementSection';
 
 
 
@@ -110,6 +111,74 @@ function PayStatusBadge({ status }: { status: string }) {
 
 const INVENTORY_PAGE_SIZE = 6;
 
+// ── Weekly revenue bar chart (used for auction and sell revenue) ──
+function WeeklyRevenueChart({ title, data, countLabel, loading, todayDay }: {
+  title:      string;
+  data:       { day: string; revenue: number; count: number }[];
+  countLabel: string;     // 'bid' | 'order'
+  loading:    boolean;
+  todayDay:   string;
+}) {
+  const maxRevenue = Math.max(...data.map(d => d.revenue), 1);
+  return (
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 flex flex-col min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 mb-1">
+        <div>
+          <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</p>
+          <p className="text-xs text-gray-400 mt-0.5">Past 7 days</p>
+        </div>
+        <div className="text-right">
+          <p className="font-display text-xl text-gray-900 dark:text-white">
+            ₹{data.reduce((s, d) => s + d.revenue, 0).toFixed(0)}
+          </p>
+          <p className="text-xs text-gray-400">total this week</p>
+        </div>
+      </div>
+
+      {/* Bars */}
+      {/* Fixed height so the bars' percentage heights have something to resolve against */}
+      <div className="flex items-end gap-1.5 h-40 mt-auto pt-4">
+        {loading
+          ? [62,45,75,50,90,80,65].map((h, i) => (
+              <div key={i} className="flex-1 rounded-t bg-gray-100 dark:bg-gray-800 animate-pulse" style={{ height: `${h}%` }} />
+            ))
+          : data.map(({ day, revenue, count }) => {
+              const pct     = Math.max(Math.round((revenue / maxRevenue) * 100), revenue > 0 ? 4 : 0);
+              const isToday = day === todayDay;
+              return (
+                <div key={day} className="flex flex-col items-center gap-1 flex-1 h-full group">
+                  <div className="relative w-full flex-1 min-h-0 flex items-end justify-center">
+                    <div
+                      title={`${day}: ₹${revenue.toFixed(0)} (${count} ${countLabel}s)`}
+                      style={{ height: pct > 0 ? `${pct}%` : '3px' }}
+                      className={cn(
+                        'w-4/5 rounded-t transition-all duration-500 cursor-pointer',
+                        isToday
+                          ? 'bg-amber-400 hover:bg-amber-500'
+                          : 'bg-cactus-400 dark:bg-cactus-600 hover:bg-cactus-500',
+                      )}
+                    />
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center pointer-events-none z-10">
+                      <div className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[10px] font-medium px-2 py-1 rounded whitespace-nowrap shadow">
+                        ₹{revenue.toFixed(0)} · {count} {countLabel}{count !== 1 ? 's' : ''}
+                      </div>
+                      <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-white" />
+                    </div>
+                  </div>
+                  <span className={cn(
+                    'text-[10px]',
+                    isToday ? 'text-amber-500 dark:text-amber-400 font-bold' : 'text-gray-400',
+                  )}>{day}</span>
+                </div>
+              );
+            })
+        }
+      </div>
+    </div>
+  );
+}
+
 // ── Main AdminPage ────────────────────────────────────────────
 export function AdminPage() {
   const navigate      = useNavigate();
@@ -143,6 +212,8 @@ export function AdminPage() {
   const [rejectNotes,    setRejectNotes]    = useState<Record<number,string>>({});
   const [acting,         setActing]         = useState<number|null>(null);
   const [processed,      setProcessed]      = useState<Set<number>>(new Set());
+  // ── Shipments (reloaded after a payment is verified) ──────
+  const [shipmentsRefresh, setShipmentsRefresh] = useState(0);
 // ── Load stats ────────────────────────────────────────────
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -303,6 +374,7 @@ export function AdminPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
       setProcessed(prev => new Set([...prev, orderId]));
+      setShipmentsRefresh(n => n + 1);
       showToast(action === 'approved' ? `✅ Order #${orderId} approved!` : `❌ Order #${orderId} rejected.`);
       setTimeout(() => {
         setPendingOrders(prev => prev.filter(o => o.id !== orderId));
@@ -313,7 +385,7 @@ export function AdminPage() {
   };
   // ── Weekly chart max ──────────────────────────────────────
   const chartData  = stats?.weeklyChart ?? Array.from({ length: 7 }, (_, i) => ({ day: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i], revenue: 0, bidCount: 0 }));
-  const maxRevenue = Math.max(...chartData.map(d => d.revenue), 1);
+  const salesChartData = stats?.weeklySalesChart ?? chartData.map(d => ({ day: d.day, revenue: 0, orderCount: 0 }));
   const todayDay   = new Date().toLocaleDateString('en-US', { weekday: 'short' }); // e.g. "Tue"
 // ─────────────────────────────────────────────────────────
   //  RENDER
@@ -404,61 +476,22 @@ export function AdminPage() {
           </div>
         </div>
 
-        {/* Revenue chart — right panel */}
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 flex flex-col">
-          <div className="flex items-start justify-between mb-1">
-            <div>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">Weekly Auction Revenue</p>
-              <p className="text-xs text-gray-400 mt-0.5">Past 7 days</p>
-            </div>
-            <div className="text-right">
-              <p className="font-display text-xl text-gray-900 dark:text-white">
-                ₹{chartData.reduce((s, d) => s + d.revenue, 0).toFixed(0)}
-              </p>
-              <p className="text-xs text-gray-400">total this week</p>
-            </div>
-          </div>
-
-          {/* Bars */}
-          {/* Fixed height so the bars' percentage heights have something to resolve against */}
-          <div className="flex items-end gap-2 h-40 mt-auto pt-4">
-            {statsLoading
-              ? [62,45,75,50,90,80,65].map((h, i) => (
-                  <div key={i} className="flex-1 rounded-t bg-gray-100 dark:bg-gray-800 animate-pulse" style={{ height: `${h}%` }} />
-                ))
-              : chartData.map(({ day, revenue, bidCount }) => {
-                  const pct     = Math.max(Math.round((revenue / maxRevenue) * 100), revenue > 0 ? 4 : 0);
-                  const isToday = day === todayDay;
-                  return (
-                    <div key={day} className="flex flex-col items-center gap-1 flex-1 h-full group">
-                      <div className="relative w-full flex-1 min-h-0 flex items-end">
-                        <div
-                          title={`${day}: ₹${revenue.toFixed(0)} (${bidCount} bids)`}
-                          style={{ height: pct > 0 ? `${pct}%` : '3px' }}
-                          className={cn(
-                            'w-full rounded-t transition-all duration-500 cursor-pointer',
-                            isToday
-                              ? 'bg-amber-400 hover:bg-amber-500'
-                              : 'bg-cactus-400 dark:bg-cactus-600 hover:bg-cactus-500',
-                          )}
-                        />
-                        {/* Tooltip */}
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center pointer-events-none z-10">
-                          <div className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-[10px] font-medium px-2 py-1 rounded whitespace-nowrap shadow">
-                            ₹{revenue.toFixed(0)} · {bidCount} bid{bidCount !== 1 ? 's' : ''}
-                          </div>
-                          <div className="w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-white" />
-                        </div>
-                      </div>
-                      <span className={cn(
-                        'text-[10px]',
-                        isToday ? 'text-amber-500 dark:text-amber-400 font-bold' : 'text-gray-400',
-                      )}>{day}</span>
-                    </div>
-                  );
-                })
-            }
-          </div>
+        {/* Revenue charts — right panel: auction + normal sales side by side */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <WeeklyRevenueChart
+            title="Weekly Auction Revenue"
+            loading={statsLoading}
+            todayDay={todayDay}
+            data={chartData.map(d => ({ day: d.day, revenue: d.revenue, count: d.bidCount }))}
+            countLabel="bid"
+          />
+          <WeeklyRevenueChart
+            title="Weekly Sell Revenue"
+            loading={statsLoading}
+            todayDay={todayDay}
+            data={salesChartData.map(d => ({ day: d.day, revenue: d.revenue, count: d.orderCount }))}
+            countLabel="order"
+          />
         </div>
       </div>
 
@@ -793,6 +826,11 @@ export function AdminPage() {
           );
         })}
       </div>
+
+      {/* ════════════════════════════════════════════════════════
+          SHIPMENTS & TRACKING SECTION
+      ════════════════════════════════════════════════════════ */}
+      <ShipmentManagementSection refreshKey={shipmentsRefresh} />
 
       {/* ── Add / Edit Modal ──────────────────────────────── */}
       {modalMode && (

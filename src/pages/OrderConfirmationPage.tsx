@@ -51,7 +51,7 @@ function Confetti() {
   );
 }
 
-const METHOD_LABELS: Record<string, string> = {
+export const METHOD_LABELS: Record<string, string> = {
   card:      'Credit / Debit Card',
   paypal:    'PayPal',
   applepay:  'Apple Pay',

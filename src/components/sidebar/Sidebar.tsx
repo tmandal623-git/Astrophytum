@@ -61,7 +61,7 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
   return (
     <aside
       className={cn(
-        'fixed top-0 left-0 h-screen h-dvh z-50 flex flex-col',
+        'fixed top-0 left-0 h-screen supports-[height:100dvh]:h-dvh z-50 flex flex-col',
         'bg-[#1a2e1a] text-green-100',
         'transition-all duration-300 ease-in-out overflow-hidden',
         collapsed ? 'lg:w-16' : 'lg:w-60',

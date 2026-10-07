@@ -6,6 +6,12 @@ export interface WeeklyChartPoint {
   bidCount: number;
 }
 
+export interface WeeklySalesPoint {
+  day:        string;   // 'Mon' | 'Tue' | ...
+  revenue:    number;
+  orderCount: number;
+}
+
 export interface AdminStats {
   totalSpecies:   number;
   liveAuctions:   number;
@@ -14,6 +20,7 @@ export interface AdminStats {
   uniqueBidders:  number;
   totalRevenue:   number;
   weeklyChart:    WeeklyChartPoint[];
+  weeklySalesChart?: WeeklySalesPoint[];   // normal (non-auction) product sales
 }
 
 export const adminService = {

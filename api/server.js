@@ -100,6 +100,128 @@ function checkStock(stock, wanted, inCart = 0) {
     : `Only ${stock} available`;
 }
 
+// ── Order pricing ─────────────────────────────────────────────
+// Totals are calculated here from current prices, never trusted from the client.
+// Keep in sync with SHIPPING_THRESHOLD / SHIPPING_COST in src/config/store.ts and TAX_RATE in CheckoutPage.tsx.
+const SHIPPING_THRESHOLD = 75;
+const SHIPPING_COST      = 9.99;
+const TAX_RATE           = 0;
+const roundMoney = (n) => Math.round(n * 100) / 100;
+
+// ── Shipment & tracking ───────────────────────────────────────
+// Customer-facing order status: the shipment status once fulfilment has started,
+// otherwise derived from the payment status. Needs `orders o LEFT JOIN order_shipments s`.
+const TRACKING_STATUS_SQL = `COALESCE(s.status, CASE o.payment_status
+  WHEN 'paid'     THEN 'payment_verified'
+  WHEN 'rejected' THEN 'payment_failed'
+  ELSE 'payment_pending' END)`;
+
+const SHIPMENT_STATUSES = ['processing', 'dispatched', 'in_transit', 'delivered', 'cancelled'];
+// Statuses that mean the parcel has left — courier, tracking number and dispatch date are required
+const SHIPPED_STATUSES  = ['dispatched', 'in_transit', 'delivered'];
+const COURIERS = { dtdc: 'DTDC', india_post: 'India Post', bluedart: 'Blue Dart', delhivery: 'Delhivery', other: 'Other' };
+
+const SHIPMENT_SELECT = `
+  s.status          AS "shipmentStatus",
+  s.courier,
+  s.courier_name    AS "courierName",
+  s.tracking_number AS "trackingNumber",
+  s.tracking_url    AS "trackingUrl",
+  to_char(s.dispatch_date, 'YYYY-MM-DD')           AS "dispatchDate",
+  to_char(s.estimated_delivery_date, 'YYYY-MM-DD') AS "estimatedDeliveryDate",
+  s.updated_at      AS "shipmentUpdatedAt"`;
+
+// Move the flat SHIPMENT_SELECT columns into a `shipment` object (null before fulfilment starts)
+function withShipment(row) {
+  const { shipmentStatus, courier, courierName, trackingNumber, trackingUrl,
+          dispatchDate, estimatedDeliveryDate, shipmentUpdatedAt, ...rest } = row;
+  return {
+    ...rest,
+    shipment: shipmentStatus ? {
+      status: shipmentStatus, courier, courierName, trackingNumber, trackingUrl,
+      dispatchDate, estimatedDeliveryDate, updatedAt: shipmentUpdatedAt,
+    } : null,
+  };
+}
+
+async function getStatusHistory(orderId) {
+  const { rows } = await pool.query(
+    `SELECT h.id, h.status, h.note, h.created_at AS "createdAt"
+     FROM order_status_history h
+     WHERE h.order_id = $1
+     ORDER BY h.created_at ASC, h.id ASC`,
+    [orderId],
+  );
+  return rows;
+}
+
+// Best-effort history entry for the existing order/payment flows — runs after their
+// transaction commits, so a history failure can never fail the order itself.
+function recordStatusHistory(orderId, status, note, changedBy = null) {
+  pool.query(
+    `INSERT INTO order_status_history (order_id, status, note, changed_by) VALUES ($1, $2, $3, $4)`,
+    [orderId, status, note ?? null, changedBy],
+  ).catch(err => console.error(`⚠️  status history for order #${orderId}:`, err.message));
+}
+
+// Real calendar date in YYYY-MM-DD form (rejects 2026-02-30 etc.)
+const isIsoDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v)
+  && !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
+  && new Date(`${v}T00:00:00Z`).toISOString().startsWith(v);
+
+// Validates and normalises the shipment form. Returns { error } or { value }.
+function parseShipmentInput(body) {
+  const str = (v) => (typeof v === 'string' ? v.trim() : v == null ? '' : null);
+  const status         = str(body?.status);
+  const courier        = str(body?.courier);
+  const courierName    = str(body?.courierName);
+  const trackingNumber = str(body?.trackingNumber);
+  const trackingUrl    = str(body?.trackingUrl);
+  const dispatchDate   = str(body?.dispatchDate);
+  const etaDate        = str(body?.estimatedDeliveryDate);
+  const note           = str(body?.note);
+
+  if ([status, courier, courierName, trackingNumber, trackingUrl, dispatchDate, etaDate, note].includes(null))
+    return { error: 'All shipment fields must be text' };
+  if (!SHIPMENT_STATUSES.includes(status))
+    return { error: `status must be one of: ${SHIPMENT_STATUSES.join(', ')}` };
+  if (courier && !Object.hasOwn(COURIERS, courier))
+    return { error: `courier must be one of: ${Object.keys(COURIERS).join(', ')}` };
+  if (courier === 'other' && courierName.length < 2)
+    return { error: 'Enter the courier name for "Other"' };
+  if (courierName.length > 100) return { error: 'Courier name is too long (max 100 characters)' };
+  if (trackingNumber && !/^[A-Za-z0-9-]{4,40}$/.test(trackingNumber))
+    return { error: 'Tracking number must be 4–40 letters, digits or dashes' };
+  if (trackingUrl) {
+    let url;
+    try { url = new URL(trackingUrl); } catch { /* invalid */ }
+    if (!url || !['http:', 'https:'].includes(url.protocol) || trackingUrl.length > 500)
+      return { error: 'Tracking URL must be a valid http(s) link' };
+  }
+  if (dispatchDate && !isIsoDate(dispatchDate)) return { error: 'Dispatch date must be a valid date (YYYY-MM-DD)' };
+  if (etaDate && !isIsoDate(etaDate))           return { error: 'Estimated delivery date must be a valid date (YYYY-MM-DD)' };
+  if (dispatchDate && etaDate && etaDate < dispatchDate)
+    return { error: 'Estimated delivery date cannot be before the dispatch date' };
+  if (note.length > 500) return { error: 'Note is too long (max 500 characters)' };
+
+  if (SHIPPED_STATUSES.includes(status)) {
+    if (!courier)        return { error: 'Select a courier before marking the order as dispatched' };
+    if (!trackingNumber) return { error: 'Enter the tracking / AWB number before marking the order as dispatched' };
+    if (!dispatchDate)   return { error: 'Enter the dispatch date before marking the order as dispatched' };
+  }
+
+  return { value: {
+    status,
+    courier:               courier || null,
+    courierName:           courier ? (courier === 'other' ? courierName : COURIERS[courier]) : null,
+    trackingNumber:        trackingNumber ? trackingNumber.toUpperCase() : null,
+    trackingUrl:           trackingUrl || null,
+    dispatchDate:          dispatchDate || null,
+    estimatedDeliveryDate: etaDate || null,
+    note:                  note || null,
+  } };
+}
+
 // ── authenticate middleware ───────────────────────────────────
 // Besides verifying the JWT, rejects tokens issued before the user's last
 // password change — so a password reset signs out every existing session.
@@ -403,8 +525,10 @@ app.get('/api/auth/my-orders', authenticate, async (req, res) => {
          o.transaction_id AS "transactionId",
          o.rejection_note AS "rejectionNote",
          o.verified_at    AS "verifiedAt",
-         o.created_at     AS "createdAt"
+         o.created_at     AS "createdAt",
+         ${TRACKING_STATUS_SQL} AS "trackingStatus"
        FROM orders o
+       LEFT JOIN order_shipments s ON s.order_id = o.id
        WHERE o.user_id = $1
        ORDER BY o.created_at DESC`,
       [req.userId],
@@ -443,6 +567,156 @@ app.get('/api/auth/my-orders', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// One order with full details — only the owner can see it
+app.get('/api/auth/my-orders/:id', authenticate, async (req, res) => {
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId) || orderId < 1)
+    return res.status(400).json({ error: 'Invalid order id' });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         o.id,
+         o.status,
+         o.order_status   AS "orderStatus",
+         o.payment_status AS "paymentStatus",
+         o.subtotal::float,
+         o.shipping::float,
+         o.tax::float,
+         o.total::float,
+         o.payment_method AS "paymentMethod",
+         o.transaction_id AS "transactionId",
+         o.rejection_note AS "rejectionNote",
+         o.verified_at    AS "verifiedAt",
+         o.created_at     AS "createdAt",
+         o.first_name     AS "firstName",
+         o.last_name      AS "lastName",
+         o.email,
+         o.phone,
+         o.address_line1  AS "addressLine1",
+         o.address_line2  AS "addressLine2",
+         o.city, o.state, o.zip, o.country,
+         ${TRACKING_STATUS_SQL} AS "trackingStatus",
+         ${SHIPMENT_SELECT}
+       FROM orders o
+       LEFT JOIN order_shipments s ON s.order_id = o.id
+       WHERE o.id = $1 AND o.user_id = $2`,
+      [orderId, req.userId],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Order not found' });
+
+    const itemsResult = await pool.query(
+      `SELECT
+         oi.quantity,
+         oi.unit_price::float AS "unitPrice",
+         c.name,
+         c.id          AS "cactusId",
+         (SELECT url FROM media WHERE cactus_id=c.id AND type='Image'
+          ORDER BY sort_order ASC NULLS LAST LIMIT 1) AS "thumbnailUrl",
+         CASE WHEN r.id IS NULL THEN NULL ELSE json_build_object(
+           'rating',    r.rating,
+           'comment',   r.comment,
+           'orderId',   r.order_id,
+           'createdAt', r.created_at,
+           'updatedAt', r.updated_at
+         ) END AS "myReview"
+       FROM order_items oi
+       JOIN cactus c ON c.id = oi.cactus_id
+       LEFT JOIN product_reviews r ON r.cactus_id = c.id AND r.user_id = $2
+       WHERE oi.order_id = $1`,
+      [orderId, req.userId],
+    );
+
+    res.json({
+      ...withShipment(rows[0]),
+      items:       itemsResult.rows,
+      history:     await getStatusHistory(orderId),
+      orderNumber: `CM-${String(orderId).padStart(6, '0')}`,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// ════════════════════════════════════════════════════════════
+//  PRODUCT REVIEWS  (protected)
+// ════════════════════════════════════════════════════════════
+// Rate a cactus from one of your delivered orders. One review per customer per
+// cactus — submitting again updates it. cactus.rating / rating_count are kept in
+// sync in the same transaction, so product listings show the new average at once.
+app.put('/api/auth/my-orders/:orderId/reviews/:cactusId', authenticate, async (req, res) => {
+  const orderId  = Number(req.params.orderId);
+  const cactusId = Number(req.params.cactusId);
+  if (!Number.isInteger(orderId) || orderId < 1 || !Number.isInteger(cactusId) || cactusId < 1)
+    return res.status(400).json({ error: 'Invalid order or cactus id' });
+
+  const { rating, comment } = req.body ?? {};
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5)
+    return res.status(400).json({ error: 'Rating must be a whole number from 1 to 5' });
+  if (comment != null && typeof comment !== 'string')
+    return res.status(400).json({ error: 'Review must be text' });
+  const text = comment?.trim() || null;
+  if (text && text.length > 1000)
+    return res.status(400).json({ error: 'Review is too long (max 1000 characters)' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const fail = (status, message) => Object.assign(new Error(message), { status });
+
+    // Must be the caller's own order, containing this cactus, and delivered
+    const { rows } = await client.query(
+      `SELECT s.status AS "shipmentStatus",
+              EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.cactus_id = $3) AS "hasItem"
+       FROM orders o
+       LEFT JOIN order_shipments s ON s.order_id = o.id
+       WHERE o.id = $1 AND o.user_id = $2`,
+      [orderId, req.userId, cactusId],
+    );
+    if (!rows.length)        throw fail(404, 'Order not found');
+    if (!rows[0].hasItem)    throw fail(400, 'You can only rate cacti you purchased in this order');
+    if (rows[0].shipmentStatus !== 'delivered')
+      throw fail(409, 'You can rate this cactus once your order has been delivered');
+
+    // Lock the cactus so concurrent reviews recalculate its average one at a time
+    const locked = await client.query('SELECT id FROM cactus WHERE id = $1 FOR UPDATE', [cactusId]);
+    if (!locked.rowCount) throw fail(404, 'This cactus is no longer available');
+
+    const { rows: saved } = await client.query(
+      `INSERT INTO product_reviews (cactus_id, order_id, user_id, rating, comment)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, cactus_id) DO UPDATE SET
+         order_id   = EXCLUDED.order_id,
+         rating     = EXCLUDED.rating,
+         comment    = EXCLUDED.comment,
+         updated_at = NOW()
+       RETURNING rating, comment, order_id AS "orderId", created_at AS "createdAt", updated_at AS "updatedAt",
+                 (xmax = 0) AS "created"`,
+      [cactusId, orderId, req.userId, rating, text],
+    );
+
+    const { rows: stats } = await client.query(
+      `UPDATE cactus SET
+         rating       = (SELECT ROUND(AVG(rating), 1) FROM product_reviews WHERE cactus_id = $1),
+         rating_count = (SELECT COUNT(*)              FROM product_reviews WHERE cactus_id = $1)
+       WHERE id = $1
+       RETURNING rating::float AS "rating", rating_count AS "ratingCount"`,
+      [cactusId],
+    );
+
+    await client.query('COMMIT');
+    const { created, ...review } = saved[0];
+    console.log(`⭐ Review ${created ? 'added' : 'updated'}: cactus #${cactusId} ${rating}★ by ${req.userId}`);
+    res.status(created ? 201 : 200).json({ review, product: stats[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (!err.status) console.error('PUT /api/auth/my-orders/:orderId/reviews/:cactusId:', err.message);
+    res.status(err.status ?? 500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ════════════════════════════════════════════════════════════
 //  CATEGORIES
 // ════════════════════════════════════════════════════════════
@@ -714,22 +988,36 @@ app.delete('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 app.get('/api/admin/stats', authenticate, requireAdmin, async (req, res) => {
   try {
-    const [species, auctions, bids, bidders, revenue, weekly] = await Promise.all([
+    const [species, auctions, bids, bidders, revenue, weekly, weeklySales] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS count FROM cactus`),
       pool.query(`SELECT COUNT(*)::int AS count FROM auction WHERE is_active=true AND ends_at>NOW()`),
       pool.query(`SELECT COUNT(*)::int AS count, COALESCE(SUM(amount),0)::float AS total FROM bid WHERE placed_at>=NOW()-INTERVAL '24 hours'`),
       pool.query(`SELECT COUNT(DISTINCT user_id)::int AS count FROM bid`),
       pool.query(`SELECT COALESCE(SUM(current_price),0)::float AS total FROM auction WHERE is_active=false`),
       pool.query(`SELECT TO_CHAR(DATE_TRUNC('day',placed_at),'Dy') AS day, COALESCE(SUM(amount),0)::float AS revenue, COUNT(*)::int AS bid_count FROM bid WHERE placed_at>=NOW()-INTERVAL '7 days' GROUP BY DATE_TRUNC('day',placed_at) ORDER BY DATE_TRUNC('day',placed_at) ASC`),
+      // Normal (cart) product sales: item value of payment-verified, non-cancelled orders.
+      // Auction wins don't go through orders, so this excludes auction revenue.
+      pool.query(`SELECT TO_CHAR(DATE_TRUNC('day',o.created_at),'Dy') AS day,
+                         COALESCE(SUM(oi.quantity * oi.unit_price),0)::float AS revenue,
+                         COUNT(DISTINCT o.id)::int AS order_count
+                  FROM orders o JOIN order_items oi ON oi.order_id = o.id
+                  WHERE o.payment_status = 'paid' AND o.order_status <> 'cancelled'
+                    AND o.created_at >= DATE_TRUNC('day', NOW()) - INTERVAL '6 days'
+                  GROUP BY DATE_TRUNC('day',o.created_at)`),
     ]);
     const weekMap = {};
     for (const row of weekly.rows) weekMap[row.day] = row;
     const weeklyChart = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => ({
       day: d, revenue: parseFloat(weekMap[d]?.revenue ?? 0), bidCount: parseInt(weekMap[d]?.bid_count ?? 0),
     }));
+    const salesMap = {};
+    for (const row of weeklySales.rows) salesMap[row.day] = row;
+    const weeklySalesChart = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => ({
+      day: d, revenue: parseFloat(salesMap[d]?.revenue ?? 0), orderCount: parseInt(salesMap[d]?.order_count ?? 0),
+    }));
     res.json({ totalSpecies: species.rows[0].count, liveAuctions: auctions.rows[0].count,
       bidsToday: bids.rows[0].count, bidsTodayValue: bids.rows[0].total,
-      uniqueBidders: bidders.rows[0].count, totalRevenue: revenue.rows[0].total, weeklyChart });
+      uniqueBidders: bidders.rows[0].count, totalRevenue: revenue.rows[0].total, weeklyChart, weeklySalesChart });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -806,11 +1094,17 @@ app.post('/api/auction/bid', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
     const aucResult = await client.query(
-      `SELECT id, current_price AS "currentPrice", ends_at AS "endsAt" FROM auction WHERE cactus_id=$1 AND is_active=true FOR UPDATE`, [cactusId]);
+      `SELECT id, current_price AS "currentPrice", bid_increment AS "bidIncrement", ends_at AS "endsAt"
+       FROM auction WHERE cactus_id=$1 AND is_active=true FOR UPDATE`, [cactusId]);
     if (!aucResult.rows.length) throw new Error('No active auction');
     const auc = aucResult.rows[0];
     if (new Date(auc.endsAt) <= new Date()) throw new Error('Auction has ended');
-    if (bidAmount <= parseFloat(auc.currentPrice)) throw new Error(`Bid must exceed ₹${parseFloat(auc.currentPrice).toFixed(2)}`);
+    const current   = parseFloat(auc.currentPrice);
+    const increment = parseFloat(auc.bidIncrement) || 0;
+    // Same minimum the bid picker offers: current price + one increment
+    const minBid    = Math.round((current + increment) * 100) / 100;
+    if (increment > 0 ? bidAmount < minBid - 0.001 : bidAmount <= current)
+      throw new Error(increment > 0 ? `Bid must be at least ₹${minBid.toFixed(2)}` : `Bid must exceed ₹${current.toFixed(2)}`);
 
     const bidResult = await client.query(
       `INSERT INTO bid (auction_id, user_id, amount, placed_at) VALUES ($1,$2,$3,NOW()) RETURNING id, amount::float, placed_at AS "placedAt"`,
@@ -927,7 +1221,7 @@ app.delete('/api/cart', authenticate, async (req, res) => {
 app.post('/api/orders', authenticate, async (req, res) => {
   const {
     userId, items, address, paymentMethod,
-    subtotal, shipping, tax, total,
+    total: clientTotal,   // what the customer saw (and, for Google Pay, paid) — checked below
     transactionId,   // ← new: UTR/ref from Google Pay
     upiId,           // ← new: UPI ID used (for record)
   } = req.body ?? {};
@@ -978,7 +1272,7 @@ app.post('/api/orders', authenticate, async (req, res) => {
        ) RETURNING id`,
       [
         userId, orderStatus, orderStatus, paymentStatus,
-        subtotal ?? 0, shipping ?? 0, tax ?? 0, total ?? 0,
+        0, 0, 0, 0,   // filled in below once item prices are known
         paymentMethod, transactionId?.trim() ?? null, upiId?.trim() ?? null,
         address.firstName, address.lastName, address.email, address.phone ?? null,
         address.line1, address.line2 ?? null, address.city,
@@ -987,13 +1281,14 @@ app.post('/api/orders', authenticate, async (req, res) => {
     );
 
     const orderId = rows[0].id;
+    let subtotal = 0;
 
     for (const item of items) {
       // Take the stock atomically — the row lock queues concurrent orders,
       // and the WHERE clause refuses to take stock below zero.
       const reserved = await client.query(
         `UPDATE cactus SET quantity = quantity - $1, updated_at = NOW()
-         WHERE id = $2::int AND quantity >= $1 RETURNING quantity`,
+         WHERE id = $2::int AND quantity >= $1 RETURNING quantity, base_price::float AS price`,
         [item.quantity, item.cactusId],
       );
       if (!reserved.rowCount) {
@@ -1005,20 +1300,41 @@ app.post('/api/orders', authenticate, async (req, res) => {
         throw err;
       }
 
+      const unitPrice = Number(reserved.rows[0].price);
+      subtotal += unitPrice * item.quantity;
       await client.query(
         `INSERT INTO order_items (order_id, cactus_id, quantity, unit_price)
          VALUES ($1, $2::int, $3::int, $4::numeric)`,
-        [orderId, item.cactusId, item.quantity, item.unitPrice],
+        [orderId, item.cactusId, item.quantity, unitPrice],
       );
     }
+
+    subtotal       = roundMoney(subtotal);
+    const shipping = subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
+    const tax      = roundMoney(subtotal * TAX_RATE);
+    const total    = roundMoney(subtotal + shipping + tax);
+
+    // A price changed since the cart was loaded — don't charge (or verify a UPI payment for) a different amount
+    if (clientTotal != null && Math.abs(Number(clientTotal) - total) > 0.01) {
+      const err = new Error(`Prices have changed — the order total is now ₹${total.toFixed(2)}. Please review your cart.`);
+      err.status = 409;
+      throw err;
+    }
+
+    await client.query(
+      `UPDATE orders SET subtotal=$1::numeric, shipping=$2::numeric, tax=$3::numeric, total=$4::numeric WHERE id=$5`,
+      [subtotal, shipping, tax, total, orderId],
+    );
 
     await client.query('COMMIT');
     const orderNumber = `CM-${String(orderId).padStart(6, '0')}`;
     console.log(`✅ Order ${orderNumber} — payment_status:${paymentStatus} order_status:${orderStatus}`);
+    recordStatusHistory(orderId, isGPay ? 'payment_pending' : 'payment_verified',
+      isGPay ? 'Order placed — awaiting payment verification' : 'Order placed and paid');
 
     res.status(201).json({
       id: orderId, orderNumber, status: orderStatus,
-      paymentStatus, orderStatus,
+      paymentStatus, orderStatus, total,
       requiresVerification: isGPay,
     });
   } catch (err) {
@@ -1033,13 +1349,8 @@ app.post('/api/orders', authenticate, async (req, res) => {
 //  GET /api/admin/pending-payments   (admin only)
 //  Lists all Google Pay orders awaiting manual verification
 // ════════════════════════════════════════════════════════════
-app.get('/api/admin/pending-payments', authenticate, async (req, res) => {
+app.get('/api/admin/pending-payments', authenticate, requireAdmin, async (req, res) => {
   try {
-    // Verify requester is admin
-    const userRes = await pool.query('SELECT role FROM users WHERE id=$1', [req.userId]);
-    if (!userRes.rows.length || userRes.rows[0].role !== 'admin')
-      return res.status(403).json({ error: 'Admin access required' });
-
     const { rows } = await pool.query(
       `SELECT
          o.id,
@@ -1085,7 +1396,7 @@ app.get('/api/admin/pending-payments', authenticate, async (req, res) => {
 //  POST /api/admin/verify-payment   (admin only)
 //  Approve or reject a Google Pay order
 // ════════════════════════════════════════════════════════════
-app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
+app.post('/api/admin/verify-payment', authenticate, requireAdmin, async (req, res) => {
   const { orderId, action, note } = req.body ?? {};
 
   if (!orderId || !action)
@@ -1096,11 +1407,6 @@ app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
   console.log(`🔍 Payment verification: order #${orderId} action:${action} by admin:${req.userId}`);
 
   try {
-    // Verify requester is admin
-    const userRes = await pool.query('SELECT role FROM users WHERE id=$1', [req.userId]);
-    if (!userRes.rows.length || userRes.rows[0].role !== 'admin')
-      return res.status(403).json({ error: 'Admin access required' });
-
     // Verify order exists and is pending
     const orderRes = await pool.query(
       `SELECT id, payment_status, order_status FROM orders WHERE id=$1`, [orderId],
@@ -1155,6 +1461,8 @@ app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
 
       await client.query('COMMIT');
       console.log(`✅ Order #${orderId} → payment:${paymentStatus} order:${orderStatus}`);
+      recordStatusHistory(orderId, action === 'approved' ? 'payment_verified' : 'payment_failed',
+        action === 'approved' ? 'Payment verified' : `Payment rejected${note ? ` — ${note}` : ''}`, req.userId);
 
       res.json({
         message:       `Payment ${action} successfully`,
@@ -1178,13 +1486,9 @@ app.post('/api/admin/verify-payment', authenticate, async (req, res) => {
 //  GET /api/admin/payment-audit/:orderId   (admin only)
 //  Returns audit log for a specific order
 // ════════════════════════════════════════════════════════════
-app.get('/api/admin/payment-audit/:orderId', authenticate, async (req, res) => {
+app.get('/api/admin/payment-audit/:orderId', authenticate, requireAdmin, async (req, res) => {
   const orderId = parseInt(req.params.orderId);
   try {
-    const userRes = await pool.query('SELECT role FROM users WHERE id=$1', [req.userId]);
-    if (!userRes.rows.length || userRes.rows[0].role !== 'admin')
-      return res.status(403).json({ error: 'Admin access required' });
-
     const { rows } = await pool.query(
       `SELECT
          l.id,
@@ -1203,6 +1507,168 @@ app.get('/api/admin/payment-audit/:orderId', authenticate, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// ════════════════════════════════════════════════════════════
+//  SHIPMENTS & TRACKING   (admin only)
+// ════════════════════════════════════════════════════════════
+// All orders with their payment, tracking and shipment details (newest first)
+app.get('/api/admin/orders', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         o.id,
+         o.total::float,
+         o.payment_method AS "paymentMethod",
+         o.payment_status AS "paymentStatus",
+         o.created_at     AS "createdAt",
+         o.first_name     AS "firstName",
+         o.last_name      AS "lastName",
+         o.email,
+         o.phone,
+         o.address_line1  AS "addressLine1",
+         o.address_line2  AS "addressLine2",
+         o.city, o.state, o.zip, o.country,
+         ${TRACKING_STATUS_SQL} AS "trackingStatus",
+         ${SHIPMENT_SELECT},
+         (
+           SELECT json_agg(json_build_object(
+             'name',      c.name,
+             'quantity',  oi.quantity,
+             'unitPrice', oi.unit_price::float
+           ) ORDER BY oi.id)
+           FROM order_items oi
+           JOIN cactus c ON c.id = oi.cactus_id
+           WHERE oi.order_id = o.id
+         ) AS items
+       FROM orders o
+       LEFT JOIN order_shipments s ON s.order_id = o.id
+       ORDER BY o.created_at DESC
+       LIMIT 500`,
+    );
+    res.json(rows.map(withShipment));
+  } catch (err) {
+    console.error('GET /api/admin/orders:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Full status history for one order, with the admin who made each change
+app.get('/api/admin/orders/:id/history', authenticate, requireAdmin, async (req, res) => {
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId) || orderId < 1)
+    return res.status(400).json({ error: 'Invalid order id' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT h.id, h.status, h.note, h.created_at AS "createdAt", u.username AS "changedBy"
+       FROM order_status_history h
+       LEFT JOIN users u ON u.id = h.changed_by
+       WHERE h.order_id = $1
+       ORDER BY h.created_at ASC, h.id ASC`,
+      [orderId],
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add or update courier details and shipment status — only for payment-verified orders
+app.put('/api/admin/orders/:id/shipment', authenticate, requireAdmin, async (req, res) => {
+  const orderId = Number(req.params.id);
+  if (!Number.isInteger(orderId) || orderId < 1)
+    return res.status(400).json({ error: 'Invalid order id' });
+
+  const { error, value: v } = parseShipmentInput(req.body);
+  if (error) return res.status(400).json({ error });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Lock the order so concurrent updates (e.g. a cancel and an edit) apply one at a time
+    const { rows } = await client.query(
+      `SELECT o.payment_status AS "paymentStatus",
+              to_char(o.created_at, 'YYYY-MM-DD') AS "orderDate",
+              s.status, s.courier, s.courier_name AS "courierName",
+              s.tracking_number AS "trackingNumber", s.tracking_url AS "trackingUrl",
+              to_char(s.dispatch_date, 'YYYY-MM-DD')           AS "dispatchDate",
+              to_char(s.estimated_delivery_date, 'YYYY-MM-DD') AS "estimatedDeliveryDate"
+       FROM orders o
+       LEFT JOIN order_shipments s ON s.order_id = o.id
+       WHERE o.id = $1
+       FOR UPDATE OF o`,
+      [orderId],
+    );
+    const fail = (status, message) => Object.assign(new Error(message), { status });
+    if (!rows.length) throw fail(404, 'Order not found');
+    const cur = rows[0];
+
+    if (cur.paymentStatus !== 'paid')
+      throw fail(409, 'Shipment details can only be added after the payment is verified');
+    if (cur.status === 'cancelled')
+      throw fail(409, 'This order is cancelled and can no longer be updated');
+    if (cur.status === 'delivered' && v.status === 'cancelled')
+      throw fail(409, 'A delivered order cannot be cancelled');
+    if (v.dispatchDate && v.dispatchDate < cur.orderDate)
+      throw fail(400, 'Dispatch date cannot be before the order date');
+
+    const FIELDS = ['status', 'courier', 'courierName', 'trackingNumber', 'trackingUrl', 'dispatchDate', 'estimatedDeliveryDate'];
+    const statusChanged  = cur.status !== v.status;
+    const detailsChanged = FIELDS.some(f => (cur[f] ?? null) !== v[f]);
+    if (!detailsChanged && !v.note) {
+      await client.query('ROLLBACK');
+      return res.json({ message: 'No changes', orderId, status: v.status });
+    }
+
+    await client.query(
+      `INSERT INTO order_shipments (
+         order_id, status, courier, courier_name, tracking_number, tracking_url,
+         dispatch_date, estimated_delivery_date, updated_by
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7::date, $8::date, $9)
+       ON CONFLICT (order_id) DO UPDATE SET
+         status                  = EXCLUDED.status,
+         courier                 = EXCLUDED.courier,
+         courier_name            = EXCLUDED.courier_name,
+         tracking_number         = EXCLUDED.tracking_number,
+         tracking_url            = EXCLUDED.tracking_url,
+         dispatch_date           = EXCLUDED.dispatch_date,
+         estimated_delivery_date = EXCLUDED.estimated_delivery_date,
+         updated_by              = EXCLUDED.updated_by,
+         updated_at              = NOW()`,
+      [orderId, v.status, v.courier, v.courierName, v.trackingNumber, v.trackingUrl,
+       v.dispatchDate, v.estimatedDeliveryDate, req.userId],
+    );
+
+    // Cancelling a paid order → mirror it on the order and put its stock back on sale
+    if (statusChanged && v.status === 'cancelled') {
+      await client.query(
+        `UPDATE orders SET order_status = 'cancelled', status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+        [orderId],
+      );
+      await client.query(
+        `UPDATE cactus c SET quantity = c.quantity + oi.qty, updated_at = NOW()
+         FROM (SELECT cactus_id, SUM(quantity)::int AS qty FROM order_items WHERE order_id=$1 GROUP BY cactus_id) oi
+         WHERE c.id = oi.cactus_id`,
+        [orderId],
+      );
+    }
+
+    await client.query(
+      `INSERT INTO order_status_history (order_id, status, note, changed_by) VALUES ($1, $2, $3, $4)`,
+      [orderId, v.status, v.note ?? (statusChanged ? null : 'Shipment details updated'), req.userId],
+    );
+
+    await client.query('COMMIT');
+    console.log(`🚚 Order #${orderId} shipment → ${v.status}${v.trackingNumber ? ` (${v.courierName} ${v.trackingNumber})` : ''}`);
+    res.json({ message: 'Shipment updated', orderId, status: v.status });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (!err.status) console.error('PUT /api/admin/orders/:id/shipment:', err.message);
+    res.status(err.status ?? 500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ════════════════════════════════════════════════════════════
 //  ORDERS — GET USER ORDERS  (protected)
 // ════════════════════════════════════════════════════════════
@@ -1241,6 +1707,66 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ`);
   // Available stock per cactus — existing listings start with 1 plant each
   await pool.query(`ALTER TABLE cactus ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 0)`);
+
+  // Shipment & tracking — one shipment per order, plus a timestamped status history
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_shipments (
+      order_id                INTEGER     PRIMARY KEY REFERENCES orders(id) ON DELETE CASCADE,
+      status                  VARCHAR(20) NOT NULL DEFAULT 'processing'
+                              CHECK (status IN ('processing','dispatched','in_transit','delivered','cancelled')),
+      courier                 VARCHAR(20),
+      courier_name            VARCHAR(100),
+      tracking_number         VARCHAR(40),
+      tracking_url            TEXT,
+      dispatch_date           DATE,
+      estimated_delivery_date DATE,
+      updated_by              UUID        REFERENCES users(id) ON DELETE SET NULL,
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_status_history (
+      id          SERIAL      PRIMARY KEY,
+      order_id    INTEGER     NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      status      VARCHAR(30) NOT NULL,
+      note        TEXT,
+      changed_by  UUID        REFERENCES users(id) ON DELETE SET NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS order_status_history_order_idx ON order_status_history (order_id, created_at)`);
+
+  // Product reviews — one per customer per cactus (re-submitting updates it)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_reviews (
+      id          SERIAL      PRIMARY KEY,
+      cactus_id   INTEGER     NOT NULL REFERENCES cactus(id) ON DELETE CASCADE,
+      order_id    INTEGER     NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+      user_id     UUID        NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+      rating      SMALLINT    NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      comment     TEXT        CHECK (char_length(comment) <= 1000),
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, cactus_id)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS product_reviews_cactus_idx ON product_reviews (cactus_id)`);
+  // Backfill history for orders placed before this table existed (no-op once every order has history)
+  await pool.query(`
+    INSERT INTO order_status_history (order_id, status, note, changed_by, created_at)
+    SELECT o.id, h.status, h.note, h.changed_by, h.at
+    FROM orders o
+    CROSS JOIN LATERAL (VALUES
+      (CASE WHEN o.payment_method = 'googlepay' THEN 'payment_pending' ELSE 'payment_verified' END,
+       CASE WHEN o.payment_method = 'googlepay' THEN 'Order placed — awaiting payment verification' ELSE 'Order placed and paid' END,
+       NULL::uuid, o.created_at),
+      (CASE WHEN o.payment_method = 'googlepay' AND o.payment_status = 'paid' THEN 'payment_verified'
+            WHEN o.payment_status = 'rejected' THEN 'payment_failed' END,
+       CASE WHEN o.payment_status = 'rejected'
+            THEN 'Payment rejected' || COALESCE(' — ' || o.rejection_note, '')
+            ELSE 'Payment verified' END,
+       o.verified_by, COALESCE(o.verified_at, o.created_at))
+    ) AS h(status, note, changed_by, at)
+    WHERE h.status IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM order_status_history x WHERE x.order_id = o.id)`);
 }
 ensureSchema().catch(err => console.error('⚠️  ensureSchema failed:', err.message));
 

@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { CactusListItem } from '../../types';
 import { Badge } from '../ui/Badge';
 import { isSoldOut } from '../../utils/stock';
+import { isSeedsCategory, SEEDS_PRICE_SUFFIX } from '../../utils/seeds';
 
 interface CactusCardProps {
   cactus: CactusListItem;
@@ -60,6 +61,7 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
 
 // ── Card ───────────────────────────────────────────────────────
 export function CactusCard({ cactus }: CactusCardProps) {
+  const isSeeds = isSeedsCategory(cactus.categoryName);
   const navigate = useNavigate();
 
   const handleClick = () => {
@@ -128,6 +130,7 @@ export function CactusCard({ cactus }: CactusCardProps) {
                 <p className="text-[10px] text-gray-400 leading-none mb-0.5">starts at</p>
                 <p className="text-base font-semibold text-gray-900 dark:text-white">
                   ₹{Number(cactus.basePrice).toFixed(2)}
+                  {isSeeds && <span className="ml-1 text-[11px] font-normal text-gray-400">{SEEDS_PRICE_SUFFIX}</span>}
                 </p>
               </div>
             ) : (
@@ -135,6 +138,7 @@ export function CactusCard({ cactus }: CactusCardProps) {
                 <p className="text-[10px] text-gray-400 leading-none mb-0.5">price</p>
                 <p className="text-base font-semibold text-gray-900 dark:text-white">
                   ₹{Number(cactus.basePrice).toFixed(2)}
+                  {isSeeds && <span className="ml-1 text-[11px] font-normal text-gray-400">{SEEDS_PRICE_SUFFIX}</span>}
                 </p>
               </div>
             )}

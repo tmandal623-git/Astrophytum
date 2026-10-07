@@ -1,11 +1,12 @@
 // src/pages/ProfilePage.tsx
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth }   from '../context/AuthContext';
 import { useToast }  from '../context/ToastContext';
 import { cn }        from '../utils/cn';
 import { Badge }     from '../components/ui/Badge';
 import { Pagination } from '../components/ui/Pagination';
+import { StatusBadge } from '../components/ui/StatusBadge';
 
 const PAGE_SIZE = 5;
 
@@ -24,6 +25,7 @@ interface MyBid {
 }
 
 interface OrderItem {
+  cactusId:     number;
   name:         string;
   quantity:     number;
   unitPrice:    number;
@@ -38,6 +40,7 @@ interface MyOrder {
   paymentMethod: string;
   createdAt:     string;
   items:         OrderItem[];
+  trackingStatus?: string;
 }
 
 type Tab = 'bids' | 'orders';
@@ -305,34 +308,47 @@ export function ProfilePage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className={cn(
-                        'text-xs font-semibold px-2.5 py-1 rounded-full capitalize',
-                        order.status === 'confirmed' ? 'bg-cactus-100 dark:bg-cactus-900 text-cactus-700 dark:text-cactus-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500',
-                      )}>
-                        {order.status}
-                      </span>
+                      {order.trackingStatus ? <StatusBadge status={order.trackingStatus} /> : (
+                        <span className={cn(
+                          'text-xs font-semibold px-2.5 py-1 rounded-full capitalize',
+                          order.status === 'confirmed' ? 'bg-cactus-100 dark:bg-cactus-900 text-cactus-700 dark:text-cactus-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500',
+                        )}>
+                          {order.status}
+                        </span>
+                      )}
                       <p className="font-display text-lg text-gray-900 dark:text-white">₹{order.total.toFixed(2)}</p>
+                      <Link
+                        to={`/profile/orders/${order.id}`}
+                        className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 text-gray-500 text-xs font-medium rounded-lg hover:bg-white dark:hover:bg-gray-900 transition-colors"
+                      >
+                        View Details
+                      </Link>
                     </div>
                   </div>
 
                   {/* Order items */}
-                  <div className="px-4 sm:px-5 py-3 flex flex-col gap-3">
+                  <div className="px-2 sm:px-3 py-2 flex flex-col gap-1">
                     {order.items.map((item, i) => (
-                      <div key={i} className="flex items-center gap-3">
+                      <Link
+                        key={i}
+                        to={`/profile/orders/${order.id}?item=${item.cactusId}`}
+                        className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+                      >
                         <div className="w-10 h-10 rounded-lg bg-cactus-50 dark:bg-cactus-950 flex-shrink-0 overflow-hidden flex items-center justify-center">
                           {item.thumbnailUrl
                             ? <img src={item.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                             : <span>🌵</span>
                           }
                         </div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{item.name}</p>
                           <p className="text-xs text-gray-400">Qty: {item.quantity} × ₹{item.unitPrice.toFixed(2)}</p>
                         </div>
                         <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                           ₹{(item.quantity * item.unitPrice).toFixed(2)}
                         </p>
-                      </div>
+                        <span className="text-gray-300 dark:text-gray-600" aria-hidden>›</span>
+                      </Link>
                     ))}
                   </div>
                 </div>

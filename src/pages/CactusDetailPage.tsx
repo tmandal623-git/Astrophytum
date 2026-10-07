@@ -16,6 +16,7 @@ import { Badge }                 from '../components/ui/Badge';
 import { CactusDetailSkeleton }  from '../components/ui/LoadingSkeleton';
 import { cn }                    from '../utils/cn';
 import { isSoldOut }             from '../utils/stock';
+import { isSeedsCategory, SEEDS_PRICE_SUFFIX } from '../utils/seeds';
 
 // ── Care tips by category ─────────────────────────────────────
 const CARE_TIPS: Record<string, { icon: string; title: string; detail: string }[]> = {
@@ -360,7 +361,9 @@ export function CactusDetailPage() {
             <span className="font-display text-3xl text-gray-900 dark:text-white">
               ₹{Number(cactus.basePrice).toFixed(2)}
             </span>
-            <span className="text-sm text-gray-400">base price</span>
+            <span className="text-sm text-gray-400">
+              {isSeedsCategory(cactus.categoryName) ? SEEDS_PRICE_SUFFIX : 'base price'}
+            </span>
           </div>
 
           {/* ══════════════════════════════════════════════════

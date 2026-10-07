@@ -407,7 +407,7 @@ export function CheckoutPage() {
           orderNumber:          body.orderNumber,
           orderId:              body.id,
           items:                [...items],
-          total,
+          total:                body.total ?? total,
           address,
           method,
           paymentStatus:        body.paymentStatus,
@@ -452,7 +452,7 @@ export function CheckoutPage() {
           <span>Shipping</span>
           <span className={shipping===0?'text-cactus-600':''}>{shipping===0?'Free':`₹${shipping.toFixed(2)}`}</span>
         </div>
-        <div className="flex justify-between text-gray-500"><span>Tax (8%)</span><span>₹{tax.toFixed(2)}</span></div>
+        <div className="flex justify-between text-gray-500"><span>Tax{TAX_RATE ? ` (${Math.round(TAX_RATE * 100)}%)` : ''}</span><span>₹{tax.toFixed(2)}</span></div>
         <div className="flex justify-between font-bold text-gray-900 dark:text-white border-t border-gray-100 dark:border-gray-800 pt-2 mt-1">
           <span>Total</span><span>₹{total.toFixed(2)}</span>
         </div>

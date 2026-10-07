@@ -33,7 +33,7 @@ const query = vi.fn(async (sql, params = []) => {
     const [qty, id] = params;
     if (!(id in stock) || stock[id] < qty) return { rows: [], rowCount: 0 };
     stock[id] -= qty;
-    return { rows: [{ quantity: stock[id] }], rowCount: 1 };
+    return { rows: [{ quantity: stock[id], price: id === 9 ? 20 : 100 }], rowCount: 1 };
   }
   if (sql.includes('SELECT name, quantity FROM cactus')) {
     const id = Number(params[0]);
@@ -61,7 +61,7 @@ beforeAll(async () => {
   auth = `Bearer ${jwt.sign({ sub: USER_ID }, JWT_SECRET)}`;
 });
 
-beforeEach(() => { stock = { 7: 3, 8: 0 }; cart = {}; });
+beforeEach(() => { stock = { 7: 3, 8: 0, 9: 5 }; cart = {}; });
 afterEach(() => query.mockClear());
 
 const order = (items) => ({
@@ -120,6 +120,31 @@ describe('POST /api/orders', () => {
     expect(res.body.error).toMatch(/Star Cactus: Only 3 available/);
     expect(sqlCalls('ROLLBACK')).toHaveLength(1);
     expect(sqlCalls('INSERT INTO order_items')).toHaveLength(0);
+  });
+
+  it('prices the order from the database, ignoring client prices', async () => {
+    const res = await request(app).post('/api/orders').set('Authorization', auth)
+      .send(order([{ cactusId: 7, quantity: 2, unitPrice: 1 }]));
+    expect(res.status).toBe(201);
+    expect(res.body.total).toBe(200);
+    expect(sqlCalls('INSERT INTO order_items')[0][1][3]).toBe(100);
+    expect(sqlCalls('UPDATE orders SET subtotal')[0][1]).toEqual([200, 0, 0, 200, 42]);
+  });
+
+  it('adds flat shipping below the free-shipping threshold', async () => {
+    const res = await request(app).post('/api/orders').set('Authorization', auth)
+      .send(order([{ cactusId: 9, quantity: 2, unitPrice: 20 }]));
+    expect(res.status).toBe(201);
+    expect(res.body.total).toBe(49.99);   // 40 + 9.99 shipping
+  });
+
+  it('refuses the order when the client total no longer matches', async () => {
+    const res = await request(app).post('/api/orders').set('Authorization', auth)
+      .send({ ...order([{ cactusId: 7, quantity: 1, unitPrice: 1 }]), total: 1 });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/Prices have changed.*₹100\.00/);
+    expect(sqlCalls('ROLLBACK')).toHaveLength(1);
+    expect(sqlCalls('COMMIT')).toHaveLength(0);
   });
 
   it('rejects non-integer quantities before touching the database', async () => {

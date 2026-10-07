@@ -13,6 +13,7 @@ import { MyBidsPage }          from './pages/MyBidsPage';
 import { MyCartPage }          from './pages/MyCartPage';
 import { CheckoutPage }        from './pages/CheckoutPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
+import { OrderDetailsPage }    from './pages/OrderDetailsPage';
 import { AdminPage }           from './pages/AdminPage';
 import { ProfilePage }         from './pages/ProfilePage';
 import { AdminRoute }          from './components/auth/AdminRoute';
@@ -47,6 +48,7 @@ export default function App() {
                     <Route path="/order-confirmed"  element={<OrderConfirmationPage />} />
                     <Route path="/admin"            element={<AdminRoute><AdminPage /></AdminRoute>} />
                     <Route path="/profile"          element={<ProfilePage />} />
+                    <Route path="/profile/orders/:id" element={<OrderDetailsPage />} />
                     <Route path="/reset-password"   element={<ResetPasswordPage />} />
                     <Route path="/about"            element={<AboutPage />} />
                     <Route path="/faq"              element={<FaqPage />} />
