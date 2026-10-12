@@ -126,23 +126,23 @@ describe('POST /api/orders', () => {
     const res = await request(app).post('/api/orders').set('Authorization', auth)
       .send(order([{ cactusId: 7, quantity: 2, unitPrice: 1 }]));
     expect(res.status).toBe(201);
-    expect(res.body.total).toBe(200);
+    expect(res.body.total).toBe(249);   // 200 + 49 shipping
     expect(sqlCalls('INSERT INTO order_items')[0][1][3]).toBe(100);
-    expect(sqlCalls('UPDATE orders SET subtotal')[0][1]).toEqual([200, 0, 0, 200, 42]);
+    expect(sqlCalls('UPDATE orders SET subtotal')[0][1]).toEqual([200, 49, 0, 249, 42]);
   });
 
-  it('adds flat shipping below the free-shipping threshold', async () => {
+  it('adds flat shipping to every order', async () => {
     const res = await request(app).post('/api/orders').set('Authorization', auth)
       .send(order([{ cactusId: 9, quantity: 2, unitPrice: 20 }]));
     expect(res.status).toBe(201);
-    expect(res.body.total).toBe(49.99);   // 40 + 9.99 shipping
+    expect(res.body.total).toBe(89);      // 40 + 49 shipping
   });
 
   it('refuses the order when the client total no longer matches', async () => {
     const res = await request(app).post('/api/orders').set('Authorization', auth)
       .send({ ...order([{ cactusId: 7, quantity: 1, unitPrice: 1 }]), total: 1 });
     expect(res.status).toBe(409);
-    expect(res.body.error).toMatch(/Prices have changed.*₹100\.00/);
+    expect(res.body.error).toMatch(/Prices have changed.*₹149\.00/);   // 100 + 49 shipping
     expect(sqlCalls('ROLLBACK')).toHaveLength(1);
     expect(sqlCalls('COMMIT')).toHaveLength(0);
   });

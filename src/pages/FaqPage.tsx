@@ -2,7 +2,7 @@
 import { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { InfoPage } from '../components/info/InfoPage';
-import { RETURN_WINDOW_DAYS, SHIPPING_COST, SHIPPING_THRESHOLD, STORE } from '../config/store';
+import { RETURN_WINDOW_DAYS, SHIPPING_COST, STORE } from '../config/store';
 
 const linkCls = 'text-cactus-600 dark:text-cactus-400 font-medium hover:underline';
 
@@ -59,7 +59,7 @@ const FAQ: { section: string; items: { q: string; a: ReactNode }[] }[] = [
     items: [
       {
         q: 'How much is shipping?',
-        a: <>Shipping is free on orders of ₹{SHIPPING_THRESHOLD} or more; otherwise it's a flat ₹{SHIPPING_COST.toFixed(2)}.
+        a: <>Shipping is a flat ₹{SHIPPING_COST.toFixed(2)} per order.
             See <Link to="/shipping" className={linkCls}>Shipping & Returns</Link> for details.</>,
       },
       {

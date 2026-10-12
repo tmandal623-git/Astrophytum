@@ -15,7 +15,7 @@ import { useAuthModal }        from '../context/AuthModalContext';
 import { useCart }             from '../context/CartContext';
 import { useToast }            from '../context/ToastContext';
 import { cn }                  from '../utils/cn';
-import { SHIPPING_COST, SHIPPING_THRESHOLD } from '../config/store';
+import { SHIPPING_COST } from '../config/store';
 import { SORTED_COUNTRIES, getCountry, getStates, getCities } from '../utils/locations';
 
 const OTHER_CITY = '__other__';
@@ -270,7 +270,7 @@ export function CheckoutPage() {
   const [apiError,      setApiError]      = useState('');
   const [cityOther,     setCityOther]     = useState(false);
 
-  const shipping = subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
+  const shipping = SHIPPING_COST;
   const tax      = subtotal * TAX_RATE;
   const total    = subtotal + shipping + tax;
 
@@ -450,7 +450,7 @@ export function CheckoutPage() {
         <div className="flex justify-between text-gray-500"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
         <div className="flex justify-between text-gray-500">
           <span>Shipping</span>
-          <span className={shipping===0?'text-cactus-600':''}>{shipping===0?'Free':`₹${shipping.toFixed(2)}`}</span>
+          <span>₹{shipping.toFixed(2)}</span>
         </div>
         <div className="flex justify-between text-gray-500"><span>Tax{TAX_RATE ? ` (${Math.round(TAX_RATE * 100)}%)` : ''}</span><span>₹{tax.toFixed(2)}</span></div>
         <div className="flex justify-between font-bold text-gray-900 dark:text-white border-t border-gray-100 dark:border-gray-800 pt-2 mt-1">

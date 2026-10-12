@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { InfoList, InfoPage, InfoSection } from '../components/info/InfoPage';
 import {
   DAMAGE_REPORT_HOURS, RETURN_WINDOW_DAYS, SHIPPING_COST,
-  SHIPPING_COUNTRIES, SHIPPING_THRESHOLD,
+  SHIPPING_COUNTRIES,
 } from '../config/store';
 
 const linkCls = 'text-cactus-600 dark:text-cactus-400 font-medium hover:underline';
@@ -15,18 +15,11 @@ export function ShippingPage() {
       title="Shipping & Returns"
       subtitle="How we pack, ship and stand behind every plant."
     >
-      {/* Rate cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-cactus-50 dark:bg-cactus-950 border border-cactus-200 dark:border-cactus-800 rounded-xl p-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-cactus-600 dark:text-cactus-400 mb-1">Orders ₹{SHIPPING_THRESHOLD}+</p>
-          <p className="font-display text-3xl text-cactus-700 dark:text-cactus-300">Free</p>
-          <p className="text-sm text-cactus-700/80 dark:text-cactus-300/80 mt-1">standard shipping</p>
-        </div>
-        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">Under ₹{SHIPPING_THRESHOLD}</p>
-          <p className="font-display text-3xl text-gray-900 dark:text-white">₹{SHIPPING_COST.toFixed(2)}</p>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">flat rate per order</p>
-        </div>
+      {/* Rate card */}
+      <div className="bg-cactus-50 dark:bg-cactus-950 border border-cactus-200 dark:border-cactus-800 rounded-xl p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-cactus-600 dark:text-cactus-400 mb-1">Standard shipping</p>
+        <p className="font-display text-3xl text-cactus-700 dark:text-cactus-300">₹{SHIPPING_COST.toFixed(2)}</p>
+        <p className="text-sm text-cactus-700/80 dark:text-cactus-300/80 mt-1">flat rate per order</p>
       </div>
 
       <InfoSection title="Where we ship" icon="🌍">

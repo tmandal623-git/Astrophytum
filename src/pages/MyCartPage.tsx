@@ -5,7 +5,7 @@ import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../utils/cn';
-import { SHIPPING_COST, SHIPPING_THRESHOLD } from '../config/store';
+import { SHIPPING_COST } from '../config/store';
 
 const TAX_RATE           = 0.08; // 8%
 
@@ -28,7 +28,7 @@ export function MyCartPage() {
   // ── Calculations ───────────────────────────────────────────
   const discountAmt  = appliedPromo ? subtotal * appliedPromo.discount : 0;
   const discounted   = subtotal - discountAmt;
-  const shipping     = discounted >= SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
+  const shipping     = SHIPPING_COST;
   const tax          = discounted * TAX_RATE;
   const total        = discounted + shipping + tax;
   const overStock    = items.some(i => i.stock !== undefined && i.quantity > i.stock);
@@ -92,31 +92,6 @@ export function MyCartPage() {
         {/* ── Left: item list ─────────────────────────────── */}
         <div className="lg:col-span-2 flex flex-col gap-3">
 
-          {/* Free shipping progress */}
-          {subtotal < SHIPPING_THRESHOLD && (
-            <div className="bg-amber-50 dark:bg-amber-950 border border-amber-100 dark:border-amber-900 rounded-xl px-4 py-3">
-              <div className="flex items-center justify-between text-sm mb-1.5">
-                <span className="text-amber-800 dark:text-amber-300 font-medium">
-                  Add ₹{(SHIPPING_THRESHOLD - subtotal).toFixed(2)} more for free shipping!
-                </span>
-                <span className="text-amber-600 dark:text-amber-400 text-xs">
-                  ₹{subtotal.toFixed(2)} / ₹{SHIPPING_THRESHOLD}
-                </span>
-              </div>
-              <div className="h-1.5 bg-amber-200 dark:bg-amber-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-amber-500 rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min((subtotal / SHIPPING_THRESHOLD) * 100, 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          {subtotal >= SHIPPING_THRESHOLD && (
-            <div className="bg-cactus-50 dark:bg-cactus-950 border border-cactus-100 dark:border-cactus-900 rounded-xl px-4 py-3 text-sm text-cactus-700 dark:text-cactus-300 font-medium flex items-center gap-2">
-              🚚 You've unlocked free shipping!
-            </div>
-          )}
 
           {/* Items */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
@@ -258,11 +233,7 @@ export function MyCartPage() {
                   valueClass="text-cactus-600 dark:text-cactus-400"
                 />
               )}
-              <Row
-                label="Shipping"
-                value={shipping === 0 ? 'Free 🚚' : `₹${shipping.toFixed(2)}`}
-                valueClass={shipping === 0 ? 'text-cactus-600 dark:text-cactus-400' : ''}
-              />
+              <Row label="Shipping" value={`₹${shipping.toFixed(2)}`} />
               <Row label={`Tax (${TAX_RATE * 100}%)`} value={`₹${tax.toFixed(2)}`} />
             </div>
 

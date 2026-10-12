@@ -102,9 +102,8 @@ function checkStock(stock, wanted, inCart = 0) {
 
 // ── Order pricing ─────────────────────────────────────────────
 // Totals are calculated here from current prices, never trusted from the client.
-// Keep in sync with SHIPPING_THRESHOLD / SHIPPING_COST in src/config/store.ts and TAX_RATE in CheckoutPage.tsx.
-const SHIPPING_THRESHOLD = 75;
-const SHIPPING_COST      = 9.99;
+// Keep in sync with SHIPPING_COST in src/config/store.ts and TAX_RATE in CheckoutPage.tsx.
+const SHIPPING_COST      = 49;
 const TAX_RATE           = 0;
 const roundMoney = (n) => Math.round(n * 100) / 100;
 
@@ -1310,7 +1309,7 @@ app.post('/api/orders', authenticate, async (req, res) => {
     }
 
     subtotal       = roundMoney(subtotal);
-    const shipping = subtotal >= SHIPPING_THRESHOLD ? 0 : SHIPPING_COST;
+    const shipping = SHIPPING_COST;
     const tax      = roundMoney(subtotal * TAX_RATE);
     const total    = roundMoney(subtotal + shipping + tax);
 
