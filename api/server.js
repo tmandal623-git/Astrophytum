@@ -978,8 +978,23 @@ app.delete('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
     res.json({ message: 'Deleted successfully' });
   } catch (err) {
     await client.query('ROLLBACK');
+    // order_items references cactus ON DELETE RESTRICT, so ordered cacti are kept for order history
+    if (err.code === '23503' && err.constraint === 'order_items_cactus_id_fkey') {
+      return res.status(409).json({ error: 'This cactus has orders and can\'t be deleted. Set its quantity to 0 to stop selling it instead.' });
+    }
+    if (err.message === 'Not found') return res.status(404).json({ error: 'Cactus not found' });
     res.status(500).json({ error: err.message });
   } finally { client.release(); }
+});
+
+// Orders that include this cactus — any of them (whatever their status) blocks deletion
+app.get('/api/admin/cactus/:id/order-count', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(DISTINCT order_id)::int AS count FROM order_items WHERE cactus_id=$1`,
+      [parseInt(req.params.id)]);
+    res.json({ count: rows[0].count });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ════════════════════════════════════════════════════════════

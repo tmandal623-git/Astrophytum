@@ -336,11 +336,20 @@ export function AdminPage() {
   };
 
   const handleDelete = async (id: number, name: string) => {
-    if (!window.confirm(`Delete "${name}"?`)) return;
     setDeleteId(id);
     try {
+      // Purchased cacti are kept for order history — warn before asking to confirm
+      const countRes = await fetch(`/api/admin/cactus/${id}/order-count`, { credentials: 'include' });
+      if (countRes.ok) {
+        const { count } = await countRes.json() as { count: number };
+        if (count > 0) {
+          window.alert(`"${name}" has already been purchased (${count} order${count === 1 ? '' : 's'}), so it can't be deleted.\n\nSet its quantity to 0 to stop selling it instead.`);
+          return;
+        }
+      }
+      if (!window.confirm(`Delete "${name}"?`)) return;
       const res = await fetch(`/api/cactus/${id}`, { method: 'DELETE', credentials: 'include' });
-      if (!res.ok) throw new Error('Delete failed');
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? 'Delete failed');
       setCacti(prev => prev.filter(c => c.id !== id));
       showToast(`"${name}" deleted.`); loadStats();
     } catch (err) { showToast(err instanceof Error ? err.message : 'Delete failed', 'error'); }
