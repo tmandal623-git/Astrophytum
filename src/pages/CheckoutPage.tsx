@@ -724,7 +724,7 @@ export function CheckoutPage() {
                   className="px-8 py-3 bg-cactus-600 hover:bg-cactus-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-all flex items-center gap-2">
                   {placing
                     ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Placing Order…</>
-                    : method==='googlepay' ? `Submit Order · ₹${total.toFixed(2)}` : `Place Order · ₹${total.toFixed(2)}`
+                    : `Place Order · ₹${total.toFixed(2)}`
                   }
                 </button>
               </div>
