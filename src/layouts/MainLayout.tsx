@@ -50,7 +50,10 @@ export function MainLayout() {
           <Outlet />
         </main>
         <footer className="border-t border-gray-200 dark:border-gray-800 px-4 sm:px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-gray-400 text-center">
-          <span className="font-display text-base text-gray-700 dark:text-gray-300">🌵 AstrophytumLab</span>
+          <span className="flex items-center gap-2 font-display text-base text-gray-700 dark:text-gray-300">
+            <img src="/Images/Logo.jpeg" alt="" className="w-7 h-7 rounded-full object-cover" />
+            AstrophytumLab
+          </span>
           <div className="flex flex-wrap justify-center gap-x-4 gap-y-1">
             {FOOTER_LINKS.map(({ to, label }) => (
               <Link key={to} to={to} className="hover:text-cactus-600 transition-colors">{label}</Link>

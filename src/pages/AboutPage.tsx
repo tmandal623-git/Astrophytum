@@ -15,7 +15,10 @@ export function AboutPage() {
 
   return (
     <InfoPage
-      icon="🌵"
+      icon={
+        <img src="/Images/Logo.jpeg" alt={`${STORE.name} logo`}
+          className="w-28 h-28 sm:w-32 sm:h-32 rounded-full object-cover shadow-sm" />
+      }
       title={`About ${STORE.name}`}
       subtitle="A small shop for people who love slow-growing, star-shaped, wonderfully strange cacti."
     >

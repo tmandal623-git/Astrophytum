@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 import { cn } from '../../utils/cn';
 
 export function InfoPage({ icon, title, subtitle, updated, children }: {
-  icon:      string;
+  icon:      ReactNode;
   title:     string;
   subtitle?: string;
   updated?:  string;
@@ -13,7 +13,7 @@ export function InfoPage({ icon, title, subtitle, updated, children }: {
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-8">
-        <p className="text-4xl mb-3">{icon}</p>
+        {typeof icon === 'string' ? <p className="text-4xl mb-3">{icon}</p> : <div className="mb-4">{icon}</div>}
         <h1 className="font-display text-2xl sm:text-3xl text-gray-900 dark:text-white mb-2">{title}</h1>
         {subtitle && <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">{subtitle}</p>}
         {updated && <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">Last updated: {updated}</p>}

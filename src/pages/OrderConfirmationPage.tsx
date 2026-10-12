@@ -12,7 +12,7 @@ interface OrderState {
 
 // ── Tiny CSS confetti (no external lib) ──────────────────────
 function Confetti() {
-  const COLORS = ['#2d7425','#c8a84b','#ef4444','#3b82f6','#a855f7','#f97316'];
+  const COLORS = ['#4f7a3a','#d6ca67','#ef4444','#3b82f6','#a855f7','#f97316'];
   const pieces = Array.from({ length: 48 }, (_, i) => ({
     id: i,
     color: COLORS[i % COLORS.length],

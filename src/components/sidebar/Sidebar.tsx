@@ -62,7 +62,7 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
     <aside
       className={cn(
         'fixed top-0 left-0 h-screen supports-[height:100dvh]:h-dvh z-50 flex flex-col',
-        'bg-[#1a2e1a] text-green-100',
+        'bg-cactus-950 text-cactus-100',
         'transition-all duration-300 ease-in-out overflow-hidden',
         collapsed ? 'lg:w-16' : 'lg:w-60',
         'w-60',
@@ -71,9 +71,11 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-6 border-b border-white/10 flex-shrink-0">
-        <div className="w-9 h-9 bg-amber-400 rounded-xl flex items-center justify-center text-xl flex-shrink-0 shadow-sm">
-          🌵
-        </div>
+        <img
+          src="/Images/Logo.jpeg"
+          alt="AstrophytumLab logo"
+          className="w-9 h-9 rounded-full object-cover flex-shrink-0 shadow-sm"
+        />
         <span className={cn(
           'font-display text-xl text-white whitespace-nowrap transition-all duration-200',
           collapsed ? 'lg:opacity-0 lg:w-0 lg:overflow-hidden' : 'opacity-100',
