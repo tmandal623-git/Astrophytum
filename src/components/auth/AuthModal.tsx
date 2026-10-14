@@ -3,9 +3,11 @@
 // Shown when a protected action is attempted while logged out.
 
 import { useState, useEffect } from 'react';
+import { Eye, EyeOff }         from 'lucide-react';
 import { useAuth }             from '../../context/AuthContext';
 import { useToast }            from '../../context/ToastContext';
 import { cn }                  from '../../utils/cn';
+import { normalizeIndianMobile } from '../../utils/phone';
 
 type Tab = 'login' | 'register' | 'forgot';
 
@@ -20,10 +22,11 @@ interface AuthModalProps {
 
 // ── Input field ───────────────────────────────────────────────
 export function Field({
-  label, type = 'text', value, onChange, error, placeholder, autoComplete,
+  label, type = 'text', value, onChange, error, placeholder, autoComplete, inputMode, hint,
 }: {
   label: string; type?: string; value: string; placeholder?: string;
   onChange: (v: string) => void; error?: string; autoComplete?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']; hint?: React.ReactNode;
 }) {
   const [show, setShow] = useState(false);
   const isPassword = type === 'password';
@@ -38,6 +41,7 @@ export function Field({
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          inputMode={inputMode}
           className={cn(
             'w-full px-3 py-2.5 text-sm border rounded-lg',
             'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100',
@@ -53,13 +57,15 @@ export function Field({
             type="button"
             tabIndex={-1}
             onClick={() => setShow(s => !s)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs select-none"
+            aria-label={show ? 'Hide password' : 'Show password'}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 select-none"
           >
-            {show ? '🙈' : '👁'}
+            {show ? <EyeOff className="w-4 h-4" aria-hidden /> : <Eye className="w-4 h-4" aria-hidden />}
           </button>
         )}
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
+      {hint && !error && hint}
     </div>
   );
 }
@@ -81,10 +87,11 @@ export function AuthModal({ isOpen, onClose, reason, defaultTab = 'login' }: Aut
   // Register fields
   const [regUsername, setRegUsername] = useState('');
   const [regEmail,    setRegEmail]    = useState('');
+  const [regPhone,    setRegPhone]    = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm,  setRegConfirm]  = useState('');
   const [regErrors,   setRegErrors]   = useState<{
-    username?: string; email?: string; password?: string; confirm?: string;
+    username?: string; email?: string; phone?: string; password?: string; confirm?: string;
   }>({});
 
   // Forgot-password fields
@@ -142,6 +149,9 @@ export function AuthModal({ isOpen, onClose, reason, defaultTab = 'login' }: Aut
     if (!regUsername.trim())                                      errs.username = 'Username is required';
     if (regUsername.trim().length < 3)                            errs.username = 'At least 3 characters';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(regEmail))            errs.email    = 'Valid email required';
+    const phone = normalizeIndianMobile(regPhone);
+    if (!regPhone.trim())                                         errs.phone    = 'Mobile number is required';
+    else if (!phone)                                              errs.phone    = 'Enter a valid 10-digit Indian mobile number starting with 6, 7, 8 or 9';
     if (regPassword.length < 6)                                   errs.password = 'At least 6 characters';
     if (regPassword !== regConfirm)                               errs.confirm  = 'Passwords do not match';
     setRegErrors(errs);
@@ -150,8 +160,8 @@ export function AuthModal({ isOpen, onClose, reason, defaultTab = 'login' }: Aut
     setLoading(true);
     setApiError('');
     try {
-      await register(regUsername.trim(), regEmail.trim(), regPassword);
-      showToast('Account created! Welcome to CactusMart 🌵');
+      await register(regUsername.trim(), regEmail.trim(), regPassword, phone!);
+      showToast('Account created! Welcome to Astrophytum Lab 🌵');
       onClose();
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Registration failed');
@@ -200,13 +210,15 @@ export function AuthModal({ isOpen, onClose, reason, defaultTab = 'login' }: Aut
       className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      {/* Modal card */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
+      {/* Modal card — clips to its rounded corners; the inner wrapper scrolls so the scrollbar stays inside */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-[420px] overflow-hidden">
+      <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain">
 
         {/* Header */}
         <div className="relative px-6 pt-6 pb-4 text-center border-b border-gray-100 dark:border-gray-800">
-          <div className="text-4xl mb-1">🌵</div>
-          <h2 className="font-display text-2xl text-gray-900 dark:text-white">CactusMart</h2>
+          <img src="/Images/Logo.jpeg" alt="Astrophytum Lab logo"
+            className="w-16 h-16 mx-auto mb-2 rounded-full object-cover shadow-sm" />
+          <h2 className="font-display text-2xl text-gray-900 dark:text-white">Astrophytum Lab</h2>
           {reason && (
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 rounded-lg px-3 py-2 mt-3 border border-amber-100 dark:border-amber-900">
               {reason}
@@ -319,6 +331,21 @@ export function AuthModal({ isOpen, onClose, reason, defaultTab = 'login' }: Aut
               autoComplete="email"
             />
             <Field
+              label="Mobile Number"
+              type="tel"
+              value={regPhone}
+              onChange={setRegPhone}
+              error={regErrors.phone}
+              placeholder="98765 43210"
+              autoComplete="tel-national"
+              inputMode="tel"
+              hint={
+                <p className="text-xs text-cactus-700 dark:text-cactus-300 bg-cactus-50 dark:bg-cactus-950 border border-cactus-100 dark:border-cactus-900 rounded-lg px-3 py-2">
+                  📱 Your mobile number will be verified. Please enter a number you can receive SMS on.
+                </p>
+              }
+            />
+            <Field
               label="Password"
               type="password"
               value={regPassword}
@@ -422,6 +449,7 @@ export function AuthModal({ isOpen, onClose, reason, defaultTab = 'login' }: Aut
           You can browse and view items without logging in.<br />
           Login is required to place bids or purchase items.
         </p>
+      </div>
       </div>
     </div>
   );

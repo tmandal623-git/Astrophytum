@@ -11,7 +11,7 @@ let auction = { id: 5, currentPrice: '100.00', bidIncrement: '2.50', endsAt: END
 
 const query = vi.fn(async (sql, params = []) => {
   if (sql.includes('password_changed_at') && sql.includes('FROM users')) return { rows: [{ changed: null }] };
-  if (sql.includes('FROM auction WHERE cactus_id=$1 AND is_active=true FOR UPDATE')) return { rows: [auction] };
+  if (sql.includes('FROM auction WHERE cactus_id=$1 AND is_active=true ORDER BY id DESC LIMIT 1 FOR UPDATE')) return { rows: [auction] };
   if (sql.includes('INSERT INTO bid')) return { rows: [{ id: 1, amount: params[2], placedAt: new Date().toISOString() }] };
   if (sql.includes('SELECT username FROM users')) return { rows: [{ username: 'alice' }] };
   return { rows: [], rowCount: 0 };

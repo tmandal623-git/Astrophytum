@@ -61,17 +61,17 @@ export function OrderDetailsPage() {
   const navigate             = useNavigate();
   const { id }               = useParams();
   const [searchParams]       = useSearchParams();
-  const { isLoggedIn }       = useAuth();
+  const { isLoggedIn, loading: authLoading }       = useAuth();
   const selectedItem         = Number(searchParams.get('item'));
 
   const [order,   setOrder]   = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  // Redirect if not logged in
+  // Redirect if not logged in — once the session check on page load has finished
   useEffect(() => {
-    if (!isLoggedIn) navigate('/home', { replace: true });
-  }, [isLoggedIn, navigate]);
+    if (!authLoading && !isLoggedIn) navigate('/home', { replace: true });
+  }, [authLoading, isLoggedIn, navigate]);
 
   useEffect(() => {
     if (!isLoggedIn) return;

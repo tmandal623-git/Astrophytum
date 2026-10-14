@@ -19,6 +19,7 @@ export interface AuctionInfo {
   startPrice:   number;
   currentPrice: number;
   bidIncrement: number;
+  startsAt:     string;    // bidding opens at this time (may be in the future)
   endsAt:       string;
   isActive:     boolean;
   totalBids:    number;
@@ -32,7 +33,8 @@ export interface CactusListItem {
   categoryName: string;
   categoryId:   number;
   basePrice:    number;
-  hasAuction:   boolean;   // true = active auction exists
+  hasAuction:   boolean;   // true = current auction exists (live, or scheduled to start)
+  auctionStartsAt?: string | null;   // set while that auction hasn't started yet
   thumbnailUrl: string | null;
   rating:       number;    // 0–5, default 0
   ratingCount:  number;    // total number of ratings

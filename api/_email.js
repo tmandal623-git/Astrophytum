@@ -7,7 +7,7 @@
 //   SMTP_PORT=587
 //   SMTP_USER=your@gmail.com
 //   SMTP_PASS=your_app_password         ← Gmail: use App Password, not account password
-//   EMAIL_FROM=CactusMart <your@gmail.com>
+//   EMAIL_FROM=Astrophytum Lab <your@gmail.com>
 //
 // For Gmail: Enable 2FA → Google Account → Security → App Passwords → Generate
 
@@ -49,7 +49,7 @@ async function sendEmail({ to, subject, html, text }) {
 
   try {
     const info = await transporter.sendMail({
-      from:    process.env.EMAIL_FROM ?? `CactusMart <${process.env.SMTP_USER ?? process.env.EMAIL_USER}>`,
+      from:    process.env.EMAIL_FROM ?? `Astrophytum Lab <${process.env.SMTP_USER ?? process.env.EMAIL_USER}>`,
       to,
       subject,
       text,
@@ -80,7 +80,7 @@ function emailWrapper(content, footerNote = 'You received this email because you
       <!-- Header -->
       <div style="background:#1a4d2e;padding:24px 32px;text-align:center;">
         <span style="font-size:32px;">🌵</span>
-        <h1 style="color:#ffffff;margin:8px 0 0;font-size:22px;font-weight:700;letter-spacing:0.5px;">CactusMart</h1>
+        <h1 style="color:#ffffff;margin:8px 0 0;font-size:22px;font-weight:700;letter-spacing:0.5px;">Astrophytum Lab</h1>
       </div>
       <!-- Body -->
       <div style="padding:32px;">
@@ -89,7 +89,7 @@ function emailWrapper(content, footerNote = 'You received this email because you
       <!-- Footer -->
       <div style="background:#f9f9f9;border-top:1px solid #eee;padding:20px 32px;text-align:center;">
         <p style="color:#999;font-size:12px;margin:0;">
-          CactusMart · Desert Plant Specialists<br>
+          Astrophytum Lab · Desert Plant Specialists<br>
           ${footerNote}
         </p>
       </div>
@@ -150,13 +150,13 @@ export async function sendApprovalEmail({ to, firstName, orderNumber, total, ite
     </div>
 
     <p style="color:#666;font-size:14px;line-height:1.6;margin:0;">
-      Thank you for shopping with CactusMart! If you have any questions, reply to this email.
+      Thank you for shopping with Astrophytum Lab! If you have any questions, reply to this email.
     </p>
   `);
 
   return sendEmail({
     to,
-    subject: `✅ Payment Confirmed — Order ${orderNumber} | CactusMart`,
+    subject: `✅ Payment Confirmed — Order ${orderNumber} | Astrophytum Lab`,
     text: `Hi ${firstName}, your payment for order ${orderNumber} has been approved. Total: ₹${Number(total).toFixed(2)}. Your cacti will be shipped within 1-3 business days.`,
     html,
   });
@@ -210,7 +210,7 @@ export async function sendRejectionEmail({ to, firstName, orderNumber, total, re
 
   return sendEmail({
     to,
-    subject: `❌ Payment Verification Failed — Order ${orderNumber} | CactusMart`,
+    subject: `❌ Payment Verification Failed — Order ${orderNumber} | Astrophytum Lab`,
     text: `Hi ${firstName}, we could not verify your payment for order ${orderNumber}. Reason: ${rejectionNote ?? 'Not specified'}. Please contact us with your transaction details.`,
     html,
   });
@@ -222,7 +222,7 @@ export async function sendPasswordResetEmail({ to, username, resetUrl, expiresMi
     <div style="text-align:center;margin-bottom:28px;">
       <div style="width:64px;height:64px;background:#fff3e0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:28px;">🔑</div>
       <h2 style="color:#1a4d2e;font-size:24px;margin:16px 0 8px;">Reset your password</h2>
-      <p style="color:#666;font-size:15px;margin:0;">Hi ${username}, we received a request to reset your CactusMart password.</p>
+      <p style="color:#666;font-size:15px;margin:0;">Hi ${username}, we received a request to reset your Astrophytum Lab password.</p>
     </div>
 
     <div style="text-align:center;margin-bottom:28px;">
@@ -246,8 +246,8 @@ export async function sendPasswordResetEmail({ to, username, resetUrl, expiresMi
 
   return sendEmail({
     to,
-    subject: '🔑 Reset your CactusMart password',
-    text: `Hi ${username}, reset your CactusMart password here (valid for ${expiresMinutes} minutes): ${resetUrl}  — If you didn't request this, ignore this email.`,
+    subject: '🔑 Reset your Astrophytum Lab password',
+    text: `Hi ${username}, reset your Astrophytum Lab password here (valid for ${expiresMinutes} minutes): ${resetUrl}  — If you didn't request this, ignore this email.`,
     html,
   });
 }

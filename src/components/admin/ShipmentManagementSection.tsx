@@ -227,7 +227,7 @@ export function ShipmentManagementSection({ refreshKey = 0 }: { refreshKey?: num
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Dispatch verified orders and keep tracking details up to date</p>
           </div>
           {counts.ready > 0 && (
-            <span className="bg-cactus-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+            <span className="bg-cactus-600 text-white text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
               {counts.ready} to dispatch
             </span>
           )}

@@ -1,4 +1,4 @@
-// server.js — CactusMart Complete Backend
+// server.js — Astrophytum Lab Complete Backend
 // Install deps first:
 //   npm install express cors pg formidable dotenv bcryptjs jsonwebtoken cookie-parser
 
@@ -70,6 +70,40 @@ pool.on('error',  (err) => console.error('🐘 PG error:', err.message));
 // ════════════════════════════════════════════════════════════
 //  AUTH HELPERS
 // ════════════════════════════════════════════════════════════
+// Indian mobile numbers: 10 digits starting 6–9, optionally prefixed with +91, 91 or 0.
+// Spaces, hyphens and brackets are ignored. Returns +91XXXXXXXXXX, or null if invalid.
+// Mirrors normalizeIndianMobile() in src/utils/phone.ts.
+function normalizeIndianMobile(input) {
+  const digits = String(input ?? '').replace(/[\s\-()]/g, '');
+  const match  = /^(?:\+91|91|0)?([6-9]\d{9})$/.exec(digits);
+  return match ? `+91${match[1]}` : null;
+}
+
+// ── Auction scheduling ────────────────────────────────────────
+// An auction is "current" while is_active and ends_at > NOW(); within that it is
+// "scheduled" before starts_at and "live" (open for bids) from starts_at on.
+const AUCTION_MAX_LEAD_DAYS  = 365;
+const AUCTION_PAST_GRACE_MS  = 5 * 60_000;   // a start a few minutes in the past (slow form) counts as "now"
+const STORE_TIME_ZONE        = 'Asia/Kolkata';
+
+// Parses the admin's start time (ISO string). '' → null (start immediately).
+// Throws a 400 error for an invalid, past or far-future time.
+function parseAuctionStart(raw) {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  const date = new Date(value);
+  if (isNaN(date.getTime()))
+    throw Object.assign(new Error('Auction start time is not a valid date'), { status: 400 });
+  if (date.getTime() < Date.now() - AUCTION_PAST_GRACE_MS)
+    throw Object.assign(new Error('Auction start time must be in the future'), { status: 400 });
+  if (date.getTime() > Date.now() + AUCTION_MAX_LEAD_DAYS * 86_400_000)
+    throw Object.assign(new Error(`Auction start time must be within ${AUCTION_MAX_LEAD_DAYS} days`), { status: 400 });
+  return date.getTime() < Date.now() ? null : date;
+}
+
+const formatStoreTime = (date) =>
+  new Date(date).toLocaleString('en-IN', { timeZone: STORE_TIME_ZONE, dateStyle: 'medium', timeStyle: 'short' }) + ' IST';
+
 function signToken(userId) {
   return jwt.sign({ sub: userId }, JWT_SECRET, { expiresIn: '7d' });
 }
@@ -290,6 +324,9 @@ app.post('/api/auth/register', async (req, res) => {
 
   if (!username?.trim() || !email?.trim() || !password)
     return res.status(400).json({ error: 'username, email and password are required' });
+  const phone = normalizeIndianMobile(req.body?.phone);
+  if (!phone)
+    return res.status(400).json({ error: 'Enter a valid 10-digit Indian mobile number' });
   if (password.length < 6)
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -305,10 +342,10 @@ app.post('/api/auth/register', async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      `INSERT INTO users (id, username, email, password, role, created_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, 'user', NOW())
+      `INSERT INTO users (id, username, email, password, role, phone, created_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, 'user', $4, NOW())
        RETURNING id, username, email, role, avatar`,
-      [username.trim(), email.toLowerCase(), hashed],
+      [username.trim(), email.toLowerCase(), hashed, phone],
     );
     const user  = rows[0];
     const token = signToken(user.id);
@@ -757,7 +794,11 @@ app.get('/api/cactus', async (req, res) => {
              c.quantity,
              (SELECT url FROM media WHERE cactus_id=c.id AND type='Image' ORDER BY sort_order ASC NULLS LAST LIMIT 1) AS "thumbnailUrl",
              CASE WHEN EXISTS (SELECT 1 FROM auction a WHERE a.cactus_id=c.id AND a.is_active=true AND a.ends_at>NOW())
-               THEN true ELSE false END AS "hasAuction"
+               THEN true ELSE false END AS "hasAuction",
+             -- Set only while the current auction hasn't started yet
+             (SELECT a.starts_at FROM auction a
+               WHERE a.cactus_id=c.id AND a.is_active=true AND a.ends_at>NOW() AND a.starts_at>NOW()
+               ORDER BY a.id DESC LIMIT 1) AS "auctionStartsAt"
       FROM cactus c LEFT JOIN categories cat ON cat.id=c.category_id
       ${where} ORDER BY c.id DESC
       LIMIT $${params.length-1} OFFSET $${params.length}`;
@@ -796,7 +837,7 @@ app.get('/api/cactus/:id', async (req, res) => {
     const auctionRes = await pool.query(
       `SELECT a.id, a.cactus_id AS "cactusId", a.start_price::float AS "startPrice",
               a.current_price::float AS "currentPrice", a.bid_increment::float AS "bidIncrement",
-              a.ends_at AS "endsAt", a.is_active AS "isActive",
+              a.starts_at AS "startsAt", a.ends_at AS "endsAt", a.is_active AS "isActive",
               (SELECT COUNT(*)::int FROM bid WHERE auction_id=a.id) AS "totalBids"
        FROM auction a WHERE a.cactus_id=$1 AND a.is_active=true AND a.ends_at>NOW() ORDER BY a.id DESC LIMIT 1`, [id]);
 
@@ -831,6 +872,12 @@ app.post('/api/cactus', authenticate, requireAdmin, async (req, res) => {
       await removeTempFiles(imageFiles);
       return res.status(400).json({ error: 'name, categoryId and basePrice are required' });
     }
+    let auctionStart = null;   // null = bidding opens immediately
+    try { if (forAuction) auctionStart = parseAuctionStart(str(fields.auctionStartsAt)); }
+    catch (startErr) {
+      await removeTempFiles(imageFiles);
+      return res.status(startErr.status ?? 400).json({ error: startErr.message });
+    }
     if (quantity === null) {
       await removeTempFiles(imageFiles);
       return res.status(400).json({ error: 'quantity must be a whole number ≥ 0' });
@@ -860,10 +907,12 @@ app.post('/api/cactus', authenticate, requireAdmin, async (req, res) => {
       if (videoUrl) await client.query(`INSERT INTO media (cactus_id, type, url, sort_order) VALUES ($1,'Video',$2,0)`, [cactusId, videoUrl]);
 
       if (forAuction) {
-        const endsAt = new Date(Date.now() + auctionHours * 3_600_000);
+        // The duration runs from the start time, so a scheduled auction still lasts auctionHours
+        const startsAt = auctionStart ?? new Date();
+        const endsAt   = new Date(startsAt.getTime() + auctionHours * 3_600_000);
         await client.query(
-          `INSERT INTO auction (cactus_id, start_price, current_price, bid_increment, ends_at, is_active) VALUES ($1,$2,$3,$4,$5,true)`,
-          [cactusId, startPrice || basePrice, startPrice || basePrice, bidIncrement, endsAt]);
+          `INSERT INTO auction (cactus_id, start_price, current_price, bid_increment, starts_at, ends_at, is_active) VALUES ($1,$2,$3,$4,$5,$6,true)`,
+          [cactusId, startPrice || basePrice, startPrice || basePrice, bidIncrement, startsAt, endsAt]);
       }
       await client.query('COMMIT');
       console.log(`✅ Cactus #${cactusId} "${name}" created`);
@@ -900,6 +949,14 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
       await removeTempFiles(imageFiles);
       return res.status(400).json({ error: 'name, categoryId and basePrice are required' });
     }
+    // Start time: omitted = keep the current schedule; '' = open bidding now
+    const startProvided = forAuction && fields.auctionStartsAt !== undefined;
+    let auctionStart = null;
+    try { if (startProvided) auctionStart = parseAuctionStart(str(fields.auctionStartsAt)); }
+    catch (startErr) {
+      await removeTempFiles(imageFiles);
+      return res.status(startErr.status ?? 400).json({ error: startErr.message });
+    }
     if (quantity === null) {
       await removeTempFiles(imageFiles);
       return res.status(400).json({ error: 'quantity must be a whole number ≥ 0' });
@@ -931,20 +988,36 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
       if (videoUrl) await client.query(`INSERT INTO media (cactus_id, type, url, sort_order) VALUES ($1,'Video',$2,0)`, [id, videoUrl]);
 
       // Auction: same "live" definition as the list/detail endpoints
+      // (includes auctions that are scheduled but haven't started yet)
       const { rows: live } = await client.query(
-        `SELECT a.id, (SELECT COUNT(*)::int FROM bid WHERE auction_id=a.id) AS bids
+        `SELECT a.id, a.starts_at AS "startsAt", a.ends_at AS "endsAt",
+                (SELECT COUNT(*)::int FROM bid WHERE auction_id=a.id) AS bids
          FROM auction a WHERE a.cactus_id=$1 AND a.is_active=true AND a.ends_at>NOW() ORDER BY a.id DESC LIMIT 1`, [id]);
       const auc = live[0];
       if (forAuction && !auc) {
-        const endsAt = new Date(Date.now() + (auctionHours ?? 48) * 3_600_000);
+        const startsAt = auctionStart ?? new Date();
+        const endsAt   = new Date(startsAt.getTime() + (auctionHours ?? 48) * 3_600_000);
         await client.query(
-          `INSERT INTO auction (cactus_id, start_price, current_price, bid_increment, ends_at, is_active) VALUES ($1,$2,$3,$4,$5,true)`,
-          [id, startPrice || basePrice, startPrice || basePrice, bidIncrement, endsAt]);
+          `INSERT INTO auction (cactus_id, start_price, current_price, bid_increment, starts_at, ends_at, is_active) VALUES ($1,$2,$3,$4,$5,$6,true)`,
+          [id, startPrice || basePrice, startPrice || basePrice, bidIncrement, startsAt, endsAt]);
       } else if (forAuction && auc) {
         await client.query(`UPDATE auction SET bid_increment=$1, updated_at=NOW() WHERE id=$2`, [bidIncrement, auc.id]);
         // Starting price can only change before anyone has bid
         if (!auc.bids) await client.query(`UPDATE auction SET start_price=$1, current_price=$1 WHERE id=$2`, [startPrice || basePrice, auc.id]);
-        if (auctionHours) await client.query(`UPDATE auction SET ends_at=$1 WHERE id=$2`, [new Date(Date.now() + auctionHours * 3_600_000), auc.id]);
+        const notStarted = new Date(auc.startsAt) > new Date();
+        if (notStarted) {
+          // Scheduled: move the start and/or change the duration; the duration counts from the start
+          if (startProvided || auctionHours) {
+            const startsAt   = startProvided ? (auctionStart ?? new Date()) : new Date(auc.startsAt);
+            const durationMs = auctionHours ? auctionHours * 3_600_000 : new Date(auc.endsAt) - new Date(auc.startsAt);
+            await client.query(`UPDATE auction SET starts_at=$1, ends_at=$2 WHERE id=$3`,
+              [startsAt, new Date(startsAt.getTime() + durationMs), auc.id]);
+          }
+        } else {
+          if (startProvided && auctionStart)
+            throw Object.assign(new Error('This auction has already started, so its start time can no longer be changed'), { status: 400 });
+          if (auctionHours) await client.query(`UPDATE auction SET ends_at=$1 WHERE id=$2`, [new Date(Date.now() + auctionHours * 3_600_000), auc.id]);
+        }
       } else if (!forAuction && auc) {
         await client.query(`UPDATE auction SET is_active=false, updated_at=NOW() WHERE id=$1`, [auc.id]);
       }
@@ -954,7 +1027,7 @@ app.put('/api/cactus/:id', authenticate, requireAdmin, async (req, res) => {
     } catch (dbErr) {
       await client.query('ROLLBACK');
       await deleteBlobs(imageUrls);   // don't leave orphaned uploads behind
-      res.status(500).json({ error: dbErr.message });
+      res.status(dbErr.status ?? 500).json({ error: dbErr.message });
     } finally { client.release(); }
   });
 });
@@ -1004,7 +1077,7 @@ app.get('/api/admin/stats', authenticate, requireAdmin, async (req, res) => {
   try {
     const [species, auctions, bids, bidders, revenue, weekly, weeklySales] = await Promise.all([
       pool.query(`SELECT COUNT(*)::int AS count FROM cactus`),
-      pool.query(`SELECT COUNT(*)::int AS count FROM auction WHERE is_active=true AND ends_at>NOW()`),
+      pool.query(`SELECT COUNT(*)::int AS count FROM auction WHERE is_active=true AND starts_at<=NOW() AND ends_at>NOW()`),
       pool.query(`SELECT COUNT(*)::int AS count, COALESCE(SUM(amount),0)::float AS total FROM bid WHERE placed_at>=NOW()-INTERVAL '24 hours'`),
       pool.query(`SELECT COUNT(DISTINCT user_id)::int AS count FROM bid`),
       pool.query(`SELECT COALESCE(SUM(current_price),0)::float AS total FROM auction WHERE is_active=false`),
@@ -1066,6 +1139,7 @@ app.get('/api/auctions/active', async (req, res) => {
       JOIN cactus c     ON c.id  = a.cactus_id
       LEFT JOIN categories cat ON cat.id = c.category_id
       WHERE a.is_active = true
+        AND a.starts_at <= NOW()
         AND a.ends_at > NOW()
       ORDER BY a.ends_at ASC
     `);
@@ -1086,9 +1160,9 @@ app.get('/api/auction/:cactusId', async (req, res) => {
     const result = await pool.query(
       `SELECT a.id, a.cactus_id AS "cactusId", a.start_price::float AS "startPrice",
               a.current_price::float AS "currentPrice", a.bid_increment::float AS "bidIncrement",
-              a.ends_at AS "endsAt", a.is_active AS "isActive",
+              a.starts_at AS "startsAt", a.ends_at AS "endsAt", a.is_active AS "isActive",
               (SELECT COUNT(*)::int FROM bid WHERE auction_id=a.id) AS "totalBids"
-       FROM auction a WHERE a.cactus_id=$1 AND a.is_active=true AND a.ends_at>NOW() ORDER BY a.id DESC LIMIT 1`,
+       FROM auction a WHERE a.cactus_id=$1 AND a.is_active=true AND a.starts_at<=NOW() AND a.ends_at>NOW() ORDER BY a.id DESC LIMIT 1`,
       [cactusId]);
     if (!result.rows.length) return res.status(404).json({ error: 'No active auction' });
     res.json(result.rows[0]);
@@ -1108,10 +1182,13 @@ app.post('/api/auction/bid', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
     const aucResult = await client.query(
-      `SELECT id, current_price AS "currentPrice", bid_increment AS "bidIncrement", ends_at AS "endsAt"
-       FROM auction WHERE cactus_id=$1 AND is_active=true FOR UPDATE`, [cactusId]);
+      `SELECT id, current_price AS "currentPrice", bid_increment AS "bidIncrement",
+              starts_at AS "startsAt", ends_at AS "endsAt"
+       FROM auction WHERE cactus_id=$1 AND is_active=true ORDER BY id DESC LIMIT 1 FOR UPDATE`, [cactusId]);   // newest = the current one
     if (!aucResult.rows.length) throw new Error('No active auction');
     const auc = aucResult.rows[0];
+    if (new Date(auc.startsAt) > new Date())
+      throw new Error(`Bidding hasn't started yet — it opens on ${formatStoreTime(auc.startsAt)}`);
     if (new Date(auc.endsAt) <= new Date()) throw new Error('Auction has ended');
     const current   = parseFloat(auc.currentPrice);
     const increment = parseFloat(auc.bidIncrement) || 0;
@@ -1684,6 +1761,110 @@ app.put('/api/admin/orders/:id/shipment', authenticate, requireAdmin, async (req
 });
 
 // ════════════════════════════════════════════════════════════
+//  USER INFO   (admin only)
+//  Never selects the password hash or reset tokens.
+// ════════════════════════════════════════════════════════════
+const USER_PAGE_SIZE     = 8;
+const USER_PAGE_SIZE_MAX = 50;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Search users by username or email (newest first), one page at a time; an empty search lists everyone
+app.get('/api/admin/users', authenticate, requireAdmin, async (req, res) => {
+  const search   = String(req.query.search ?? '').trim().slice(0, 100);
+  // Escape LIKE wildcards so "%" or "_" in the search box match literally
+  const pattern  = `%${search.replace(/[\\%_]/g, ch => `\\${ch}`)}%`;
+  const sizeAsked = parseInt(req.query.pageSize);
+  const pageSize  = sizeAsked > 0 ? Math.min(sizeAsked, USER_PAGE_SIZE_MAX) : USER_PAGE_SIZE;   // invalid → default
+  const page     = Math.max(parseInt(req.query.page) || 1, 1);
+  const where    = `WHERE $1 = '' OR u.username ILIKE $2 OR u.email ILIKE $2 OR u.id::text = $1`;
+  try {
+    const [data, count] = await Promise.all([
+      pool.query(
+        `SELECT
+           u.id, u.username, u.email, u.role, u.avatar,
+           u.created_at AS "createdAt",
+           (SELECT COUNT(*)::int FROM orders o WHERE o.user_id = u.id::text) AS "orderCount"
+         FROM users u
+         ${where}
+         ORDER BY u.created_at DESC, u.id
+         LIMIT $3 OFFSET $4`,
+        [search, pattern, pageSize, (page - 1) * pageSize],
+      ),
+      pool.query(`SELECT COUNT(*)::int AS count FROM users u ${where}`, [search, pattern]),
+    ]);
+    const totalCount = count.rows[0]?.count ?? 0;
+    res.json({ items: data.rows, totalCount, totalPages: Math.max(1, Math.ceil(totalCount / pageSize)), page, pageSize });
+  } catch (err) {
+    console.error('GET /api/admin/users:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// One user's profile, contact details from their latest order, activity totals and recent orders
+app.get('/api/admin/users/:id', authenticate, requireAdmin, async (req, res) => {
+  const userId = req.params.id;
+  if (!UUID_RE.test(userId)) return res.status(400).json({ error: 'Invalid user id' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         u.id, u.username, u.email, u.role, u.avatar, u.phone,
+         u.created_at AS "createdAt",
+         (SELECT COUNT(*)::int FROM orders o WHERE o.user_id = u.id::text) AS "orderCount",
+         (SELECT COALESCE(SUM(o.total), 0)::float FROM orders o
+           WHERE o.user_id = u.id::text AND o.payment_status = 'paid')     AS "totalSpent",
+         (SELECT MAX(o.created_at) FROM orders o WHERE o.user_id = u.id::text) AS "lastOrderAt",
+         (SELECT COUNT(*)::int FROM bid b WHERE b.user_id::text = u.id::text) AS "bidCount",
+         (SELECT COUNT(*)::int FROM product_reviews r WHERE r.user_id = u.id) AS "reviewCount"
+       FROM users u
+       WHERE u.id = $1`,
+      [userId],
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+
+    const { rows: orders } = await pool.query(
+      `SELECT
+         o.id, o.total::float,
+         o.payment_method AS "paymentMethod",
+         o.payment_status AS "paymentStatus",
+         o.created_at     AS "createdAt",
+         o.first_name     AS "firstName",
+         o.last_name      AS "lastName",
+         o.email, o.phone,
+         o.address_line1  AS "addressLine1",
+         o.address_line2  AS "addressLine2",
+         o.city, o.state, o.zip, o.country,
+         ${TRACKING_STATUS_SQL} AS "trackingStatus"
+       FROM orders o
+       LEFT JOIN order_shipments s ON s.order_id = o.id
+       WHERE o.user_id = $1
+       ORDER BY o.created_at DESC
+       LIMIT 5`,
+      [userId],
+    );
+
+    // Users have no phone/address of their own — the latest checkout is the best contact record
+    const latest  = orders[0];
+    const contact = latest ? {
+      firstName: latest.firstName, lastName: latest.lastName, email: latest.email, phone: latest.phone,
+      addressLine1: latest.addressLine1, addressLine2: latest.addressLine2,
+      city: latest.city, state: latest.state, zip: latest.zip, country: latest.country,
+    } : null;
+
+    res.json({
+      ...rows[0],
+      contact,
+      recentOrders: orders.map(o => ({
+        id: o.id, total: o.total, paymentMethod: o.paymentMethod, paymentStatus: o.paymentStatus,
+        trackingStatus: o.trackingStatus, createdAt: o.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error('GET /api/admin/users/:id:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
 //  ORDERS — GET USER ORDERS  (protected)
 // ════════════════════════════════════════════════════════════
 app.get('/api/orders', authenticate, async (req, res) => {
@@ -1719,8 +1900,14 @@ async function ensureSchema() {
     )`);
   // NULL = never changed → all existing tokens stay valid
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ`);
+  // Mobile number given at registration (+91XXXXXXXXXX); NULL for accounts created before it was asked for
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(15)`);
   // Available stock per cactus — existing listings start with 1 plant each
   await pool.query(`ALTER TABLE cactus ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 0)`);
+  // Auction start time — existing auctions count as started when they were created (see scripts/auction-schedule.sql)
+  await pool.query(`ALTER TABLE auction ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ`);
+  await pool.query(`UPDATE auction SET starts_at = COALESCE(created_at, NOW()) WHERE starts_at IS NULL`);
+  await pool.query(`ALTER TABLE auction ALTER COLUMN starts_at SET DEFAULT NOW(), ALTER COLUMN starts_at SET NOT NULL`);
 
   // Shipment & tracking — one shipment per order, plus a timestamped status history
   await pool.query(`
@@ -1789,7 +1976,7 @@ ensureSchema().catch(err => console.error('⚠️  ensureSchema failed:', err.me
 export default app;
 
 if (!process.env.VERCEL) app.listen(PORT, () => {
-  console.log(`🌵 CactusMart API  →  http://localhost:${PORT}`);
+  console.log(`🌵 Astrophytum Lab API  →  http://localhost:${PORT}`);
   console.log(`📁 Static files    →  ${PUBLIC_DIR}`);
   console.log(`🔑 JWT secret set  →  ${JWT_SECRET !== 'cactusmart_dev_secret_change_in_prod' ? 'YES ✅' : 'default (change in prod!)'}`);
   console.log(`🔍 Ping test       →  http://localhost:${PORT}/api/ping`);

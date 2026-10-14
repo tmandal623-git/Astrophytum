@@ -253,8 +253,8 @@ function GooglePayPanel({
 // ── Main CheckoutPage ─────────────────────────────────────────
 export function CheckoutPage() {
   const navigate             = useNavigate();
-  const { user, isLoggedIn } = useAuth();
-  const { openModal }        = useAuthModal();
+  const { user, isLoggedIn, loading: authLoading } = useAuth();
+  const { openModal, closeModal } = useAuthModal();
   const { items, subtotal, clearCart } = useCart();
   const { showToast }        = useToast();
 
@@ -274,9 +274,12 @@ export function CheckoutPage() {
   const tax      = subtotal * TAX_RATE;
   const total    = subtotal + shipping + tax;
 
+  // Ask for login only once the session check on page load has finished (and close it if the check logs us in)
   useEffect(() => {
+    if (authLoading) return;
     if (!isLoggedIn) openModal('Please log in to complete your purchase.', 'login');
-  }, [isLoggedIn]);
+    else closeModal();
+  }, [authLoading, isLoggedIn]);
 
   // Reset transaction ID when switching away from GPay
   useEffect(() => {
@@ -715,7 +718,7 @@ export function CheckoutPage() {
               )}
 
               <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-                By placing your order you agree to CactusMart's Terms of Service and Privacy Policy.
+                By placing your order you agree to Astrophytum Lab's Terms of Service and Privacy Policy.
               </p>
 
               <div className="flex justify-between">

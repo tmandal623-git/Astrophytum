@@ -7,7 +7,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { cn } from '../utils/cn';
 import { SHIPPING_COST } from '../config/store';
 
-const TAX_RATE           = 0.08; // 8%
+const TAX_RATE           = 0;    // no tax — same as checkout and the server (api/server.js)
 
 // ── Promo codes (mock) ─────────────────────────────────────────
 const PROMO_CODES: Record<string, { discount: number; label: string }> = {
@@ -234,7 +234,7 @@ export function MyCartPage() {
                 />
               )}
               <Row label="Shipping" value={`₹${shipping.toFixed(2)}`} />
-              <Row label={`Tax (${TAX_RATE * 100}%)`} value={`₹${tax.toFixed(2)}`} />
+              <Row label={`Tax${TAX_RATE ? ` (${Math.round(TAX_RATE * 100)}%)` : ''}`} value={`₹${tax.toFixed(2)}`} />
             </div>
 
             <div className="border-t border-gray-100 dark:border-gray-800 pt-3 flex items-center justify-between">

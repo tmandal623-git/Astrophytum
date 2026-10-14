@@ -1,6 +1,7 @@
 // src/components/header/Header.tsx
 import { useState, useRef, useEffect } from 'react';
-import { useLocation, useNavigate }    from 'react-router-dom';
+import { Link, useNavigate }           from 'react-router-dom';
+import { HandCoins, LogOut, Moon, Package, Search, Settings, ShoppingCart, Sun, UserRound } from 'lucide-react';
 import { useAuth }                     from '../../context/AuthContext';
 import { useAuthModal }                from '../../context/AuthModalContext';
 import { useToast }                    from '../../context/ToastContext';
@@ -13,26 +14,11 @@ interface HeaderProps {
   onToggleTheme: () => void;
 }
 
-const BREADCRUMBS: Record<string, string> = {
-  '/home':           'Browse Cacti',
-  '/auctions':       'Live Auctions',
-  '/my-bids':        'My Bids',
-  '/my-cart':        'My Cart',
-  '/checkout':       'Checkout',
-  '/order-confirmed':'Order Confirmed',
-  '/admin':          'Admin Dashboard',
-  '/profile':        'My Profile',
-  '/reset-password': 'Reset Password',
-  '/cactus':         'Cactus Detail',
-  '/about':          'About Us',
-  '/faq':            'FAQ',
-  '/shipping':       'Shipping & Returns',
-  '/contact':        'Contact Us',
-  '/privacy':        'Privacy Policy',
-};
+// Past this scroll offset the header gets its shadow, and on phones may slide away
+const SCROLL_SHADOW_PX = 8;
+const SCROLL_HIDE_PX   = 80;
 
 export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
-  const location             = useLocation();
   const navigate             = useNavigate();
   const { user, isLoggedIn, logout } = useAuth();
   const { openModal }        = useAuthModal();
@@ -42,9 +28,35 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef                     = useRef<HTMLDivElement>(null);
 
-  // Current page label
-  const matched  = Object.keys(BREADCRUMBS).find(k => location.pathname.startsWith(k));
-  const pageLabel = matched ? BREADCRUMBS[matched] : 'Page';
+  // ── Search (tablet/desktop; results open on the Home page via ?q=) ──
+  const [query, setQuery] = useState('');
+
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const term = query.trim();
+    if (!term) return;
+    navigate(`/home?q=${encodeURIComponent(term)}`);
+    setQuery('');
+  };
+
+  // ── Scroll: shadow once scrolled; on phones hide while scrolling down, show on scroll up ──
+  const [scrolled, setScrolled] = useState(false);
+  const [hidden,   setHidden]   = useState(false);
+  useEffect(() => {
+    let lastY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      setScrolled(y > SCROLL_SHADOW_PX);
+      if (y < SCROLL_HIDE_PX)  setHidden(false);
+      else if (y > lastY + 4)  setHidden(true);
+      else if (y < lastY - 4)  setHidden(false);
+      lastY = y;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  // Never slide away while the account menu is open
+  const slideAway = hidden && !dropdownOpen;
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -70,13 +82,22 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
     : '?';
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-4 sm:px-6 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
+    <header className={cn(
+      'sticky top-0 z-30 flex items-center justify-between gap-2 sm:gap-3 h-14 px-3 sm:px-6',
+      // Frosted glass — falls back to solid where backdrop blur isn't supported
+      'bg-white dark:bg-gray-900 supports-[backdrop-filter]:bg-white/75 dark:supports-[backdrop-filter]:bg-gray-900/75 backdrop-blur-md',
+      'border-b transition-[transform,box-shadow,border-color] duration-300',
+      scrolled
+        ? 'border-gray-200/80 dark:border-gray-800/80 shadow-[0_4px_20px_-8px_rgba(0,0,0,0.15)]'
+        : 'border-gray-200 dark:border-gray-800',
+      slideAway && 'max-md:-translate-y-full',
+    )}>
 
-      {/* ── Left: hamburger + breadcrumb ──────────────────── */}
-      <div className="flex items-center gap-3 min-w-0">
+      {/* ── Left: hamburger + logo (until the sidebar shows) + search ── */}
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         <button
           onClick={onMenuClick}
-          className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="lg:hidden p-1.5 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
           aria-label="Open menu"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -84,17 +105,25 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
           </svg>
         </button>
 
-        <nav className="flex items-center gap-2 text-sm min-w-0">
-          <span className="text-gray-400 dark:text-gray-500 hidden sm:inline">CactusMart</span>
-          <svg className="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 hidden sm:block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-          <span className="font-medium text-gray-900 dark:text-white truncate">{pageLabel}</span>
-        </nav>
+        {/* Logo — the sidebar (which carries it on desktop) is hidden below lg */}
+        <Link to="/home" className="lg:hidden flex items-center gap-2 min-w-0">
+          <img src="/Images/Logo.jpeg" alt="" className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+          <span className="font-display text-base sm:text-lg text-gray-900 dark:text-white whitespace-nowrap truncate max-[339px]:hidden">Astrophytum Lab</span>
+        </Link>
+
+        {/* Search (tablet/desktop) */}
+        <form onSubmit={submitSearch} role="search" className="hidden md:block flex-1 max-w-md">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" aria-hidden />
+            <input type="search" value={query} onChange={e => setQuery(e.target.value)}
+              placeholder="Search cacti, cultivars, seeds…" aria-label="Search cacti"
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800/60 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-cactus-500 focus:bg-white dark:focus:bg-gray-900 transition-colors" />
+          </div>
+        </form>
       </div>
 
-      {/* ── Right: theme + cart (mobile) + auth ───────────── */}
-      <div className="flex items-center gap-2 sm:gap-3">
+      {/* ── Right: theme + cart + auth ───────────────────── */}
+      <div className="flex items-center gap-1 sm:gap-3 flex-shrink-0">
 
         {/* Dark/Light toggle */}
         <button
@@ -109,17 +138,19 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
             'absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm flex items-center justify-center text-xs transition-transform duration-300',
             theme === 'dark' ? 'translate-x-6' : 'translate-x-0',
           )}>
-            {theme === 'dark' ? '🌙' : '☀️'}
+            {theme === 'dark'
+              ? <Moon className="w-3 h-3 text-cactus-700" aria-hidden />
+              : <Sun  className="w-3 h-3 text-amber-500" aria-hidden />}
           </span>
         </button>
 
-        {/* Cart (mobile only) */}
+        {/* Cart */}
         <button
           onClick={() => navigate('/my-cart')}
           aria-label={totalItems > 0 ? `My Cart (${totalItems} items)` : 'My Cart'}
-          className="sm:hidden relative p-1.5 rounded-lg text-lg leading-none hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+          className="relative p-1.5 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
         >
-          🛒
+          <ShoppingCart className="w-5 h-5" aria-hidden />
           {totalItems > 0 && (
             <span className="absolute -top-1 -right-1 min-w-[1.125rem] h-[1.125rem] px-1 bg-cactus-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
               {totalItems > 9 ? '9+' : totalItems}
@@ -134,7 +165,8 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(o => !o)}
-              className="flex items-center gap-2 pl-2 pr-3 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              aria-label="Account menu"
+              className="flex items-center gap-2 p-1 sm:pl-2 sm:pr-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
               {/* Avatar circle */}
               <div className="w-7 h-7 rounded-full bg-cactus-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
@@ -143,7 +175,7 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
               <span className="text-sm font-medium text-gray-700 dark:text-gray-200 hidden sm:block max-w-[100px] truncate">
                 {user.username}
               </span>
-              <svg className={cn('w-3 h-3 text-gray-400 transition-transform', dropdownOpen && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <svg className={cn('hidden sm:block w-3 h-3 text-gray-400 transition-transform', dropdownOpen && 'rotate-180')} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
@@ -165,22 +197,22 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
 
                 {/* Menu items */}
                 {[
-                  { icon: '👤', label: 'My Profile',  onClick: () => { navigate('/profile');   setDropdownOpen(false); } },
+                  { icon: UserRound,    label: 'My Profile',  onClick: () => { navigate('/profile');   setDropdownOpen(false); } },
                   // { icon: '📋', label: 'My Bids',     onClick: () => { navigate('/my-bids');   setDropdownOpen(false); } },
-                  { icon: '📋', label: 'My Bids',     onClick: () => { navigate('/profile?tab=bids');   setDropdownOpen(false); } },
-                  { icon: '🛒', label: 'My Cart',     onClick: () => { navigate('/my-cart');   setDropdownOpen(false); } },
-                  { icon: '📦', label: 'My Orders',   onClick: () => { navigate('/profile?tab=orders'); setDropdownOpen(false); } },
+                  { icon: HandCoins,    label: 'My Bids',     onClick: () => { navigate('/profile?tab=bids');   setDropdownOpen(false); } },
+                  { icon: ShoppingCart, label: 'My Cart',     onClick: () => { navigate('/my-cart');   setDropdownOpen(false); } },
+                  { icon: Package,      label: 'My Orders',   onClick: () => { navigate('/profile?tab=orders'); setDropdownOpen(false); } },
                   ...(user.role === 'admin'
-                    ? [{ icon: '⚙️', label: 'Admin Dashboard', onClick: () => { navigate('/admin'); setDropdownOpen(false); } }]
+                    ? [{ icon: Settings, label: 'Admin Dashboard', onClick: () => { navigate('/admin'); setDropdownOpen(false); } }]
                     : []
                   ),
-                ].map(({ icon, label, onClick }) => (
+                ].map(({ icon: Icon, label, onClick }) => (
                   <button
                     key={label}
                     onClick={onClick}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-left"
                   >
-                    <span>{icon}</span>{label}
+                    <Icon className="w-4 h-4 text-gray-400 flex-shrink-0" strokeWidth={1.75} aria-hidden />{label}
                   </button>
                 ))}
 
@@ -190,7 +222,7 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
                     onClick={handleLogout}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors text-left"
                   >
-                    <span>🚪</span> Log Out
+                    <LogOut className="w-4 h-4 flex-shrink-0" strokeWidth={1.75} aria-hidden /> Log Out
                   </button>
                 </div>
               </div>

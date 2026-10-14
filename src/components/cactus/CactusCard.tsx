@@ -3,12 +3,14 @@
 // No cart actions on the card — everything is on the detail page.
 // Clicking anywhere on the card navigates to /cactus/:id
 
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CalendarClock, Eye, Gavel } from 'lucide-react';
 import { CactusListItem } from '../../types';
 import { Badge } from '../ui/Badge';
 import { isSoldOut } from '../../utils/stock';
 import { isSeedsCategory, SEEDS_PRICE_SUFFIX } from '../../utils/seeds';
+import { formatAuctionStart, isAuctionScheduled, MAX_TIMER_MS } from '../../utils/auctionSchedule';
 
 interface CactusCardProps {
   cactus: CactusListItem;
@@ -64,6 +66,19 @@ export function CactusCard({ cactus }: CactusCardProps) {
   const isSeeds = isSeedsCategory(cactus.categoryName);
   const navigate = useNavigate();
 
+  // Scheduled auction → "Coming Soon" until its start time, then the card flips to Live by itself
+  const startsAt = cactus.auctionStartsAt ?? null;
+  const [scheduled, setScheduled] = useState(() => isAuctionScheduled(startsAt));
+  useEffect(() => {
+    setScheduled(isAuctionScheduled(startsAt));
+    if (!startsAt) return;
+    const ms = new Date(startsAt).getTime() - Date.now();
+    if (ms <= 0 || ms > MAX_TIMER_MS) return;
+    const t = setTimeout(() => setScheduled(false), ms + 500);
+    return () => clearTimeout(t);
+  }, [startsAt]);
+  const isLive = cactus.hasAuction && !scheduled;
+
   const handleClick = () => {
     navigate(`/cactus/${cactus.id}`);
   };
@@ -94,17 +109,24 @@ export function CactusCard({ cactus }: CactusCardProps) {
           <Badge variant="gold">{cactus.categoryName}</Badge>
         </div>
 
-        {/* Live auction badge — top right */}
-        {cactus.hasAuction && (
+        {/* Auction badge — top right */}
+        {isLive && (
           <div className="absolute top-3 right-3">
             <Badge variant="danger" pulse>Live Bid</Badge>
+          </div>
+        )}
+        {scheduled && (
+          <div className="absolute top-3 right-3">
+            <Badge variant="info">Coming Soon</Badge>
           </div>
         )}
 
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-all duration-300 flex items-end justify-center pb-4">
-          <span className="opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-200 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg">
-            {cactus.hasAuction ? '🔨 View Auction' : '👁 View Details'}
+          <span className="inline-flex items-center gap-1.5 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition-all duration-200 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-xs font-semibold px-4 py-2 rounded-full shadow-lg">
+            {cactus.hasAuction
+              ? <><Gavel className="w-3.5 h-3.5" aria-hidden />View Auction</>
+              : <><Eye className="w-3.5 h-3.5" aria-hidden />View Details</>}
           </span>
         </div>
       </div>
@@ -112,13 +134,21 @@ export function CactusCard({ cactus }: CactusCardProps) {
       {/* ── Body ──────────────────────────────────────────── */}
       <div className="px-3.5 py-3 flex flex-col flex-1 gap-1.5">
 
-        {/* Name */}
-        <h3 className="font-display text-lg text-gray-900 dark:text-white leading-snug line-clamp-1">
+        {/* Name — up to two lines; min height keeps prices aligned across the row */}
+        <h3 title={cactus.name} className="font-display text-lg text-gray-900 dark:text-white leading-snug line-clamp-2 sm:min-h-[2.75em]">
           {cactus.name}
         </h3>
 
         {/* Customer rating */}
         <StarRating rating={cactus.rating} count={cactus.ratingCount} />
+
+        {/* Scheduled auction notice */}
+        {scheduled && startsAt && (
+          <p className="flex items-start gap-1.5 text-[11px] leading-snug text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-900 rounded-lg px-2.5 py-1.5">
+            <CalendarClock className="w-3.5 h-3.5 mt-px flex-shrink-0" aria-hidden />
+            <span><span className="font-semibold">Coming Soon!</span> Available for bidding on {formatAuctionStart(startsAt)}.</span>
+          </p>
+        )}
 
         {/* ── Footer: price + cta hint ────────────────────── */}
         <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-800 mt-auto">
@@ -145,7 +175,11 @@ export function CactusCard({ cactus }: CactusCardProps) {
           </div>
 
           {/* Status pill */}
-          {cactus.hasAuction ? (
+          {scheduled ? (
+            <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-2.5 py-1 rounded-full border border-blue-100 dark:border-blue-900">
+              Soon
+            </span>
+          ) : cactus.hasAuction ? (
             <span className="flex items-center gap-1 text-[11px] font-semibold text-red-500 bg-red-50 dark:bg-red-950 px-2.5 py-1 rounded-full border border-red-100 dark:border-red-900">
               <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
               Live

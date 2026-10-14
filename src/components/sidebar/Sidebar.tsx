@@ -2,6 +2,7 @@
 // Categories nav item removed.
 
 import { NavLink } from 'react-router-dom';
+import { ChevronsLeft, Gavel, HandCoins, House, Package, Settings, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { cn } from '../../utils/cn';
@@ -21,7 +22,7 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
     {
       title: 'Main',
       items: [
-        { to: '/home', icon: '🏠', label: 'Home' },
+        { to: '/home', icon: House, label: 'Home' },
       ],
     },
     {
@@ -29,16 +30,16 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
       items: [
         {
           to:    '/my-cart',
-          icon:  '🛒',
+          icon:  ShoppingCart,
           label: 'My Cart',
           badge: totalItems > 0 ? totalItems : undefined,
         },
         { to: '/my-orders',
-          icon: '📦', 
+          icon: Package,
           label: 'My Orders',
         },
         { to: '/my-bids', 
-          icon: '📋', 
+          icon: HandCoins,
           label: 'My Bids' 
         },
       ],
@@ -46,14 +47,14 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
     {
       title: 'Trading',
       items: [
-        { to: '/auctions', icon: '🔨', label: 'Auctions', badge: undefined as number | undefined },        
+        { to: '/auctions', icon: Gavel, label: 'Auctions', badge: undefined as number | undefined },        
       ],
     },
     // Admin link only for admin users
     ...(isAdmin ? [{
       title: 'System',
       items: [
-        { to: '/admin', icon: '⚙️', label: 'Admin' },
+        { to: '/admin', icon: Settings, label: 'Admin' },
       ],
     }] : []),
   ];
@@ -112,7 +113,7 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
                     {isActive && (
                       <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-amber-400 rounded-r" />
                     )}
-                    <span className="text-lg w-6 text-center flex-shrink-0">{item.icon}</span>
+                    <item.icon className="w-5 h-5 mx-0.5 flex-shrink-0" strokeWidth={1.75} aria-hidden />
                     <span className={cn(
                       'whitespace-nowrap transition-all duration-200 flex-1',
                       collapsed ? 'lg:opacity-0 lg:w-0 lg:overflow-hidden' : 'opacity-100',
@@ -146,7 +147,8 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
         onClick={onToggleCollapse}
         className="hidden lg:flex items-center gap-3 px-5 py-4 border-t border-white/10 text-green-200/60 hover:text-white transition-colors duration-150 text-sm flex-shrink-0"
       >
-        <span className={cn('text-lg transition-transform duration-300', collapsed ? 'rotate-180' : 'rotate-0')}>◀</span>
+        <ChevronsLeft aria-hidden strokeWidth={1.75}
+          className={cn('w-5 h-5 mx-0.5 flex-shrink-0 transition-transform duration-300', collapsed ? 'rotate-180' : 'rotate-0')} />
         <span className={cn('whitespace-nowrap transition-all duration-200', collapsed ? 'lg:opacity-0 lg:w-0 lg:overflow-hidden' : 'opacity-100')}>
           Collapse
         </span>

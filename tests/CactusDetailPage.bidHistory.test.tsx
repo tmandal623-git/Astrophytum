@@ -20,6 +20,7 @@ const CACTUS: CactusDetail = {
   basePrice: 500, createdAt: '2026-01-01T00:00:00.000Z', rating: 0, ratingCount: 0, media: [],
   auction: {
     id: 3, cactusId: 7, startPrice: 500, currentPrice: 600, bidIncrement: 50,
+    startsAt: new Date(Date.now() - 3_600_000).toISOString(),
     endsAt: new Date(Date.now() + 86_400_000).toISOString(), isActive: true, totalBids: 2,
   },
 };

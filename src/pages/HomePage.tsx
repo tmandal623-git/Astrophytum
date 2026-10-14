@@ -3,12 +3,15 @@
 // Price / Add to Cart / Buy Now all live on the detail page.
 // Categories page removed — filter pills still work inline.
 
-import { useCallback, useState } from 'react';
-import { useNavigate }           from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ShoppingCart }          from 'lucide-react';
 import { useCacti }              from '../hooks/useCacti';
 import { useCart }               from '../context/CartContext';
 import { CactusCard }            from '../components/cactus/CactusCard';
 import { CactusFilters }         from '../components/cactus/CactusFilters';
+import { HomeHero }              from '../components/home/HomeHero';
+import { isAuctionScheduled }    from '../utils/auctionSchedule';
 import { Pagination }            from '../components/ui/Pagination';
 import { SkeletonGrid }          from '../components/ui/LoadingSkeleton';
 import { EmptyState, NetworkErrorEmpty } from '../components/ui/EmptyState';
@@ -22,6 +25,20 @@ export function HomePage() {
   const [page,       setPage]       = useState(1);
   const [categoryId, setCategoryId] = useState<number | undefined>();
   const [search,     setSearch]     = useState('');
+  const collectionRef = useRef<HTMLDivElement>(null);
+
+  // Search submitted from the header arrives as ?q= — apply it, jump to the results, then drop it from the URL
+  const [searchParams, setSearchParams] = useSearchParams();
+  const headerQuery = searchParams.get('q');
+  useEffect(() => {
+    if (headerQuery === null) return;
+    setSearch(headerQuery);
+    setCategoryId(undefined);
+    setPage(1);
+    setSearchParams(prev => { const next = new URLSearchParams(prev); next.delete('q'); return next; }, { replace: true });
+    // Wait a frame so the page (and the layout's scroll-to-top) has settled before scrolling down
+    requestAnimationFrame(() => collectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, [headerQuery, setSearchParams]);
 
   const { data, loading, error, refetch } = useCacti({
     page,
@@ -46,17 +63,20 @@ export function HomePage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const liveCount = data?.items.filter((c) => c.hasAuction).length ?? 0;
+  const liveCount = data?.items.filter((c) => c.hasAuction && !isAuctionScheduled(c.auctionStartsAt)).length ?? 0;
 
   return (
     <div className="max-w-7xl mx-auto">
 
+      {/* ── Banner ───────────────────────────────────────── */}
+      <HomeHero onShopClick={() => collectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
+
       {/* ── Page header ──────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      <div ref={collectionRef} className="scroll-mt-20 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="font-display text-3xl text-gray-900 dark:text-white">
-            Browse Cactus
-          </h1>
+          <h2 className="font-display text-3xl text-gray-900 dark:text-white">
+            Find Your Cactus
+          </h2>
           {data && !loading && (
             <p className="text-sm text-gray-400 dark:text-gray-500 mt-0.5">
               {data.totalCount} {data.totalCount === 1 ? 'species' : 'species'} available
@@ -75,7 +95,8 @@ export function HomePage() {
             onClick={() => navigate('/my-cart')}
             className="relative flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 rounded-lg hover:border-cactus-400 hover:text-cactus-700 dark:hover:text-cactus-400 transition-colors self-start"
           >
-            🛒 My Cart
+            <ShoppingCart className="w-4 h-4" aria-hidden />
+            My Cart
             <span className="w-5 h-5 bg-cactus-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
               {totalItems > 9 ? '9+' : totalItems}
             </span>
@@ -159,7 +180,7 @@ export function HomePage() {
       {totalItems > 0 && (
         <div className="fixed bottom-4 sm:bottom-6 inset-x-0 px-4 flex justify-center z-40 pointer-events-none">
           <div className="pointer-events-auto max-w-full flex items-center gap-2 sm:gap-3 bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-4 sm:px-5 py-3 rounded-2xl shadow-2xl border border-gray-800 dark:border-gray-200">
-            <span className="text-lg hidden sm:inline">🛒</span>
+            <ShoppingCart className="w-5 h-5 hidden sm:inline" aria-hidden />
             <span className="text-sm font-medium whitespace-nowrap">
               {totalItems} item{totalItems !== 1 ? 's' : ''} in cart
             </span>

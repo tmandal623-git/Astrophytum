@@ -1,6 +1,5 @@
 // src/components/cactus/CactusGallery.tsx
-// Main image (large) + all images as a single horizontal thumbnail strip.
-// Thumbnails are always visible regardless of count.
+// Main image (large) + a horizontal thumbnail strip when there is more than one photo.
 
 import { useState } from 'react';
 import { MediaItem } from '../../types';
@@ -74,16 +73,15 @@ export function CactusGallery({ media, name }: CactusGalleryProps) {
         )}
       </div>
 
-      {/* ── Thumbnail strip — always horizontal, all 5 in one row ── */}
-      {images.length > 0 && (
-        <div className="flex gap-2">
+      {/* ── Thumbnail strip — only useful with 2+ photos ── */}
+      {images.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
           {images.map((img, i) => (
             <button
               key={img.id ?? i}
               onClick={() => setActiveIndex(i)}
               className={cn(
-                // Each thumb takes equal width in the row
-                'flex-1 aspect-square rounded-lg overflow-hidden border-2 transition-all duration-150 flex-shrink-0',
+                'w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border-2 transition-all duration-150 flex-shrink-0',
                 i === activeIndex
                   ? 'border-cactus-500 ring-2 ring-cactus-300 dark:ring-cactus-700 opacity-100'
                   : 'border-transparent opacity-55 hover:opacity-85 hover:border-gray-300 dark:hover:border-gray-600',
@@ -105,13 +103,6 @@ export function CactusGallery({ media, name }: CactusGalleryProps) {
             </button>
           ))}
 
-          {/* Empty placeholder slots up to 5 — keeps layout consistent */}
-          {images.length < 5 && Array.from({ length: 5 - images.length }).map((_, i) => (
-            <div
-              key={`empty-${i}`}
-              className="flex-1 aspect-square rounded-lg border-2 border-dashed border-gray-100 dark:border-gray-800 flex-shrink-0"
-            />
-          ))}
         </div>
       )}
 

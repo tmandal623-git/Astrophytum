@@ -35,7 +35,7 @@ interface AuthContextValue {
   isLoggedIn:   boolean;
   isAdmin:      boolean;
   login:        (email: string, password: string) => Promise<void>;
-  register:     (username: string, email: string, password: string) => Promise<void>;
+  register:     (username: string, email: string, password: string, phone: string) => Promise<void>;
   logout:       () => Promise<void>;
 }
 
@@ -93,11 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Register ──────────────────────────────────────────────
   const register = useCallback(async (
-    username: string, email: string, password: string,
+    username: string, email: string, password: string, phone: string,
   ) => {
     const data = await apiFetch('/api/auth/register', {
       method: 'POST',
-      body:   JSON.stringify({ username, email, password }),
+      body:   JSON.stringify({ username, email, password, phone }),
     });
     writeLastActivity(Date.now());
     setUser(data.user);

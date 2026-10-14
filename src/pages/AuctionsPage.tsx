@@ -126,19 +126,13 @@ function AuctionCard({
         {/* Name */}
         <h3
           onClick={() => navigate(`/cactus/${item.cactusId}`)}
-          className="font-display text-lg text-gray-900 dark:text-white leading-snug cursor-pointer hover:text-cactus-600 dark:hover:text-cactus-400 transition-colors line-clamp-1"
+          title={item.cactusName}
+          className="font-display text-lg text-gray-900 dark:text-white leading-snug cursor-pointer hover:text-cactus-600 dark:hover:text-cactus-400 transition-colors line-clamp-2"
         >
           {item.cactusName}
         </h3>
 
-        {/* Description */}
-        {item.description && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed -mt-1">
-            {item.description}
-          </p>
-        )}
-
-        {/* Price row */}
+        {/* Price row — the description is shown on the product page only */}
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-semibold text-red-500">
             ₹{Number(item.currentPrice).toFixed(2)}
@@ -165,7 +159,7 @@ function AuctionCard({
         <div className="flex gap-2 mt-auto pt-1">
           <button
             onClick={() => onBid(item.cactusId)}
-            className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-sm font-semibold rounded-lg transition-colors"
+            className="flex-1 py-2.5 bg-cactus-600 hover:bg-cactus-700 active:bg-cactus-800 text-white text-sm font-semibold rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
           >
             Place Bid
           </button>
@@ -316,14 +310,16 @@ export function AuctionsPage() {
       {!loading && auctions.length > 0 && (
         <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
           {[
-            { label:'Active Auctions', value:auctions.length,              sub:'ongoing right now'  },
-            { label:'Total Bids',      value:totalBids,                    sub:'placed across all'  },
-            { label:'Highest Bid',     value:`₹${highestBid.toFixed(2)}`,  sub:`on ${endingSoon}`  },
-          ].map(({ label, value, sub }) => (
+            { label:'Active Auctions', short:'Active',  value:auctions.length,              sub:'ongoing right now'  },
+            { label:'Total Bids',      short:'Bids',    value:totalBids,                    sub:'placed across all'  },
+            { label:'Highest Bid',     short:'Highest', value:`₹${highestBid.toFixed(0)}`,  sub:`on ${endingSoon}`  },
+          ].map(({ label, short, value, sub }) => (
             <div key={label} className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3 sm:p-4 min-w-0">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+              <p className="text-[10px] sm:text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1 truncate">
+                <span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span>
+              </p>
               <p className="font-display text-lg sm:text-2xl text-gray-900 dark:text-white truncate">{value}</p>
-              <p className="text-[11px] text-cactus-600 dark:text-cactus-400 mt-0.5">{sub}</p>
+              <p title={sub} className="hidden sm:block text-[11px] text-cactus-600 dark:text-cactus-400 mt-0.5 truncate">{sub}</p>
             </div>
           ))}
         </div>
@@ -331,13 +327,13 @@ export function AuctionsPage() {
 
       {/* ── Filters + sort ───────────────────────────────────── */}
       {!loading && auctions.length > 0 && (
-        <div className="flex items-center gap-3 mb-6 flex-wrap">
-          {/* Category pills */}
-          <div className="flex items-center gap-2 flex-wrap flex-1">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-6">
+          {/* Category pills — one swipeable row on phones */}
+          <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto sm:flex-wrap -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 sm:pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {categories.map(cat => (
               <button key={cat} onClick={() => setCategory(cat)}
                 className={cn(
-                  'px-3.5 py-1.5 rounded-full text-sm font-medium border capitalize transition-all duration-200',
+                  'px-3.5 py-1.5 rounded-full text-sm font-medium border capitalize transition-all duration-200 whitespace-nowrap flex-shrink-0',
                   category === cat
                     ? 'bg-cactus-600 border-cactus-600 text-white shadow-sm'
                     : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-cactus-400 dark:hover:border-cactus-600',
@@ -350,7 +346,8 @@ export function AuctionsPage() {
           <select
             value={sortKey}
             onChange={e => setSortKey(e.target.value as SortKey)}
-            className="text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-cactus-500 cursor-pointer flex-shrink-0"
+            aria-label="Sort auctions"
+            className="w-full sm:w-auto text-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 rounded-lg px-3 py-2 sm:py-1.5 focus:outline-none focus:ring-2 focus:ring-cactus-500 cursor-pointer flex-shrink-0"
           >
             {SORT_OPTIONS.map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>

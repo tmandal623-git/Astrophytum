@@ -74,7 +74,7 @@ function timeLeft(endsAt: string) {
 export function ProfilePage() {
   const navigate              = useNavigate();
   const [searchParams]        = useSearchParams();
-  const { user, isLoggedIn }  = useAuth();
+  const { user, isLoggedIn, loading: authLoading } = useAuth();
   const { showToast }         = useToast();
 
   const defaultTab = (searchParams.get('tab') as Tab) ?? 'bids';
@@ -85,10 +85,11 @@ export function ProfilePage() {
   const [bidsPage,   setBidsPage]   = useState(1);
   const [ordersPage, setOrdersPage] = useState(1);
 
-  // Redirect if not logged in
+  // Redirect if not logged in — once the session check on page load has finished,
+  // otherwise reloading this page (or opening a link to it) bounces a logged-in user to Home
   useEffect(() => {
-    if (!isLoggedIn) navigate('/home', { replace: true });
-  }, [isLoggedIn, navigate]);
+    if (!authLoading && !isLoggedIn) navigate('/home', { replace: true });
+  }, [authLoading, isLoggedIn, navigate]);
 
   // Load data
   useEffect(() => {

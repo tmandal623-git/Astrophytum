@@ -1,6 +1,7 @@
 // src/pages/AdminPage.tsx
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CalendarClock, CalendarDays, Clock, Crop, Eye, Flag, LayoutDashboard, Pencil, Trash2, SearchCheck, Truck, UserRound, Zap, type LucideIcon } from 'lucide-react';
 import { adminService, AdminStats } from '../services/adminService';
 import { categoryService }          from '../services/categoryService';
 import { CactusDetail, CactusListItem, Category } from '../types';
@@ -9,8 +10,11 @@ import { Pagination } from '../components/ui/Pagination';
 import { useToast } from '../context/ToastContext';
 import { cn }       from '../utils/cn';
 import { compressImage, MAX_UPLOAD_BYTES } from '../utils/compressImage';
+import { formatAuctionStart, isAuctionScheduled, toDateTimeLocalValue } from '../utils/auctionSchedule';
 import { PaymentVerificationSection }  from '../components/admin/PaymentVerificationSection';
 import { ShipmentManagementSection }   from '../components/admin/ShipmentManagementSection';
+import { UserInfoSection }             from '../components/admin/UserInfoSection';
+import { ImageCropModal }              from '../components/admin/ImageCropModal';
 
 
 
@@ -27,13 +31,14 @@ interface CactusForm {
   startPrice:   string;
   bidIncrement: string;
   auctionHours: string;
+  auctionStart: string;   // datetime-local value in the admin's time zone; '' = start immediately
   videoUrl:     string;
 }
 
 const EMPTY_FORM: CactusForm = {
   name: '', description: '', categoryId: '', basePrice: '', quantity: '1',
   forAuction: false, startPrice: '', bidIncrement: '2.50',
-  auctionHours: '48', videoUrl: '',
+  auctionHours: '48', auctionStart: '', videoUrl: '',
 };
 
 const inputCls = (err?: string) => cn(
@@ -60,7 +65,7 @@ function Field({ label, required, error, hint, children }: {
 }
 
 // ── Image preview grid ────────────────────────────────────────
-function ImagePreviewGrid({ files, onRemove }: { files: File[]; onRemove: (i: number) => void }) {
+function ImagePreviewGrid({ files, onRemove, onCrop }: { files: File[]; onRemove: (i: number) => void; onCrop: (i: number) => void }) {
   const MAX = 5;
   return (
     <div>
@@ -77,6 +82,12 @@ function ImagePreviewGrid({ files, onRemove }: { files: File[]; onRemove: (i: nu
               aria-label="Remove photo"
               className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs flex items-center justify-center [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity">
               ✕
+            </button>
+            <button type="button" onClick={() => onCrop(i)}
+              aria-label="Crop photo" title="Crop / adjust"
+              className="absolute top-1 left-1 h-6 px-1.5 rounded-full bg-black/60 hover:bg-cactus-600 text-white text-[10px] font-semibold flex items-center gap-1 transition-colors">
+              <Crop className="w-3 h-3" aria-hidden />
+              <span className="max-[400px]:hidden">Crop</span>
             </button>
             {i === 0 && <span className="absolute bottom-0 left-0 right-0 bg-cactus-600 text-white text-[9px] text-center py-0.5 font-medium">MAIN</span>}
           </div>
@@ -110,6 +121,24 @@ function PayStatusBadge({ status }: { status: string }) {
 }
 
 const INVENTORY_PAGE_SIZE = 6;
+
+// Suggested start when the admin picks "Schedule for later": tomorrow at 11:00 local time
+function defaultScheduledStart(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(11, 0, 0, 0);
+  return toDateTimeLocalValue(d.toISOString());
+}
+
+// ── Admin tabs ────────────────────────────────────────────────
+type AdminTab = 'dashboard' | 'payments' | 'shipments' | 'users';
+
+const ADMIN_TABS: { id: AdminTab; label: string; short: string; icon: LucideIcon }[] = [
+  { id: 'dashboard', label: 'Admin Dashboard',       short: 'Dashboard', icon: LayoutDashboard },
+  { id: 'payments',  label: 'Payment Verification',  short: 'Payments',  icon: SearchCheck },
+  { id: 'shipments', label: 'Shipments & Tracking',  short: 'Shipments', icon: Truck },
+  { id: 'users',     label: 'User Info',             short: 'Users',     icon: UserRound },
+];
 
 // ── Weekly revenue bar chart (used for auction and sell revenue) ──
 function WeeklyRevenueChart({ title, data, countLabel, loading, todayDay }: {
@@ -183,7 +212,8 @@ function WeeklyRevenueChart({ title, data, countLabel, loading, todayDay }: {
 export function AdminPage() {
   const navigate      = useNavigate();
   const { showToast } = useToast();
-// ── Stats ─────────────────────────────────────────────────
+  const [activeTab,    setActiveTab]    = useState<AdminTab>('dashboard');
+// ── Stats─────────────────────────────────────────────────
   const [stats,        setStats]        = useState<AdminStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   // ── Inventory ─────────────────────────────────────────────
@@ -202,7 +232,12 @@ export function AdminPage() {
   const [imageFiles,   setImageFiles]   = useState<File[]>([]);
   const [saving,       setSaving]       = useState(false);
   const fileInputRef                    = useRef<HTMLInputElement>(null);
+  // Optional crop: index of the added photo being cropped, if any
+  const [recropIndex,  setRecropIndex]  = useState<number | null>(null);
+  const originalPhotos                  = useRef(new WeakMap<File, File>());   // cropped → original, so re-cropping starts from the full photo
   const editAuctionHours                = useRef('');
+  const editAuctionStart                = useRef('');
+  const [editAuctionStarted, setEditAuctionStarted] = useState(false);   // live auction: start can't move
   // ── Payment verification ──────────────────────────────────
   const [pendingOrders,  setPendingOrders]  = useState<PendingOrder[]>([]);
   const [pvLoading,      setPvLoading]      = useState(true);
@@ -262,12 +297,20 @@ export function AdminPage() {
   );
 // ── Image handling ────────────────────────────────────────
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files ?? []);
+    const selected = Array.from(e.target.files ?? []).filter(f => f.type.startsWith('image/'));
     setImageFiles(prev => [...prev, ...selected].slice(0, 5));
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  // Replace the photo being cropped with the result (or with its original, to undo a crop)
+  const finishCrop = (result: File, original: File) => {
+    if (result !== original) originalPhotos.current.set(result, original);
+    if (recropIndex !== null) setImageFiles(prev => prev.map((f, i) => (i === recropIndex ? result : f)));
+    setRecropIndex(null);
+  };
+  const resetCrop = () => setRecropIndex(null);
 // ── Modal helpers ─────────────────────────────────────────
-  const openAdd = () => { setEditTarget(null); setForm(EMPTY_FORM); setFormErrors({}); setImageFiles([]); setModalMode('add'); };
+  const openAdd = () => { setEditTarget(null); setForm(EMPTY_FORM); setFormErrors({}); setImageFiles([]); resetCrop(); setEditAuctionStarted(false); editAuctionStart.current = ''; setModalMode('add'); };
   const openEdit = async (c: CactusListItem) => {
     // The list row has no auction/video details — load them so the form starts fully filled
     let detail: CactusDetail | null = null;
@@ -275,9 +318,16 @@ export function AdminPage() {
       const res = await fetch(`/api/cactus/${c.id}`);
       if (res.ok) detail = await res.json();
     } catch { /* fall back to list data */ }
-    const auction = detail?.auction;
-    const hours   = auction ? String(Math.max(1, Math.ceil((new Date(auction.endsAt).getTime() - Date.now()) / 3_600_000))) : EMPTY_FORM.auctionHours;
+    const auction    = detail?.auction;
+    const notStarted = !!auction && isAuctionScheduled(auction.startsAt);
+    // Scheduled: hours = full duration from the start. Live: hours left from now (as before).
+    const hours   = !auction ? EMPTY_FORM.auctionHours
+      : notStarted ? String(Math.max(1, Math.round((new Date(auction.endsAt).getTime() - new Date(auction.startsAt).getTime()) / 3_600_000)))
+      : String(Math.max(1, Math.ceil((new Date(auction.endsAt).getTime() - Date.now()) / 3_600_000)));
+    const start   = notStarted ? toDateTimeLocalValue(auction!.startsAt) : '';
     editAuctionHours.current = hours;
+    editAuctionStart.current = start;
+    setEditAuctionStarted(!!auction && !notStarted);
     setEditTarget(c);
     setForm({
       ...EMPTY_FORM,
@@ -286,11 +336,12 @@ export function AdminPage() {
       startPrice:   auction ? String(auction.startPrice)   : '',
       bidIncrement: auction ? String(auction.bidIncrement) : EMPTY_FORM.bidIncrement,
       auctionHours: hours,
+      auctionStart: start,
       videoUrl:     detail?.media.find(m => m.type === 'Video')?.url ?? '',
     });
-    setFormErrors({}); setImageFiles([]); setModalMode('edit');
+    setFormErrors({}); setImageFiles([]); resetCrop(); setModalMode('edit');
   };
-  const closeModal = () => { setModalMode(null); setEditTarget(null); setImageFiles([]); };
+  const closeModal = () => { setModalMode(null); setEditTarget(null); setImageFiles([]); resetCrop(); setEditAuctionStarted(false); };
 
   const validate = () => {
     const errs: typeof formErrors = {};
@@ -300,6 +351,13 @@ export function AdminPage() {
     const qty = Number(form.quantity);
     if (form.quantity.trim() === '' || !Number.isInteger(qty) || qty < 0) errs.quantity = 'Enter a whole number ≥ 0.';
     if (form.forAuction && isNaN(parseFloat(form.startPrice))) errs.startPrice = 'Starting price required.';
+    // Only a changed start time is checked — an untouched scheduled start is kept as is
+    const startChanged = modalMode === 'add' || form.auctionStart !== editAuctionStart.current;
+    if (form.forAuction && form.auctionStart && startChanged) {
+      const at = new Date(form.auctionStart);
+      if (isNaN(at.getTime()))       errs.auctionStart = 'Enter a valid date and time.';
+      else if (at.getTime() <= Date.now()) errs.auctionStart = 'Start time must be in the future.';
+    }
     setFormErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -317,6 +375,10 @@ export function AdminPage() {
         fd.append('startPrice', form.startPrice || form.basePrice); fd.append('bidIncrement', form.bidIncrement || '2.50');
         // On edit, only send the duration if it was changed, so saving doesn't move a live auction's end time
         if (modalMode === 'add' || !editTarget?.hasAuction || form.auctionHours !== editAuctionHours.current) fd.append('auctionHours', form.auctionHours || '48');
+        // Start time as a UTC instant; on edit only when changed ('' = open bidding now)
+        const startChanged = modalMode === 'add' || !editTarget?.hasAuction || form.auctionStart !== editAuctionStart.current;
+        if (startChanged && !editAuctionStarted && (form.auctionStart || modalMode === 'edit'))
+          fd.append('auctionStartsAt', form.auctionStart ? new Date(form.auctionStart).toISOString() : '');
       }
       if (form.videoUrl.trim()) fd.append('videoUrl', form.videoUrl.trim());
       // Resize large photos in the browser — the hosting platform caps a request at 4.5 MB
@@ -421,6 +483,43 @@ export function AdminPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Tabs ──────────────────────────────────────────── */}
+      {/* Every panel stays mounted and is only hidden, so switching tabs keeps its state and doesn't refetch */}
+      <div role="tablist" aria-label="Admin sections"
+        className="grid grid-cols-2 gap-2 sm:flex sm:gap-1 sm:overflow-x-auto sm:border-b border-gray-200 dark:border-gray-700">
+        {ADMIN_TABS.map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button key={tab.id} type="button" role="tab"
+              id={`admin-tab-${tab.id}`} aria-selected={isActive} aria-controls={`admin-panel-${tab.id}`}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                'flex items-center gap-2 px-3 sm:px-4 py-2.5 text-[13px] sm:text-sm font-medium transition-colors min-w-0',
+                // phones: bordered tiles · sm+: underline tabs
+                'max-sm:rounded-lg max-sm:border sm:-mb-px sm:whitespace-nowrap sm:border-b-2 sm:rounded-t-lg',
+                isActive
+                  ? 'border-cactus-600 text-cactus-700 dark:text-cactus-400 bg-cactus-50 dark:bg-cactus-950/40'
+                  : 'max-sm:border-gray-200 max-sm:dark:border-gray-700 max-sm:bg-white max-sm:dark:bg-gray-900 sm:border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800',
+              )}>
+              <tab.icon className="w-4 h-4 flex-shrink-0" strokeWidth={1.75} aria-hidden />
+              <span className="truncate sm:hidden">{tab.short}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
+              {tab.id === 'payments' && pendingOrders.length > 0 && (
+                <span className="ml-auto sm:ml-0 bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0">
+                  {pendingOrders.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ════════════════════════════════════════════════════════
+          ADMIN DASHBOARD TAB
+      ════════════════════════════════════════════════════════ */}
+      <div role="tabpanel" id="admin-panel-dashboard" aria-labelledby="admin-tab-dashboard"
+        hidden={activeTab !== 'dashboard'} className="space-y-5">
 
       {/* ── Top row: 4 stat cards LEFT + Revenue chart RIGHT ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -547,7 +646,52 @@ export function AdminPage() {
           </div>
         ) : (
           <>
-          <div className="overflow-x-auto">
+          {/* Phones: one card per cactus so stock, status and actions are visible without sideways scrolling */}
+          <ul className="md:hidden divide-y divide-gray-100 dark:divide-gray-800">
+            {pagedCacti.map(c => (
+              <li key={c.id} className="p-4 flex flex-col gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-14 h-14 rounded-lg flex-shrink-0 overflow-hidden bg-cactus-50 dark:bg-cactus-950 flex items-center justify-center">
+                    {c.thumbnailUrl ? <img src={c.thumbnailUrl} alt="" className="w-full h-full object-cover" /> : <span>🌵</span>}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm text-gray-900 dark:text-white leading-snug line-clamp-2">{c.name}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                      <Badge variant="success">{c.categoryName}</Badge>
+                      {c.hasAuction && isAuctionScheduled(c.auctionStartsAt)
+                        ? <Badge variant="info">Scheduled</Badge>
+                        : c.hasAuction ? <Badge variant="danger" pulse>Live</Badge> : <Badge variant="outline">Buy Now</Badge>}
+                    </div>
+                  </div>
+                  <p className="font-semibold text-sm text-gray-900 dark:text-white whitespace-nowrap">₹{Number(c.basePrice).toFixed(2)}</p>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
+                  <span className="flex items-center gap-3">
+                    <span>Stock: {c.quantity > 0 ? <span className="font-semibold text-gray-700 dark:text-gray-300">{c.quantity}</span> : <span className="font-semibold text-red-500">Sold out</span>}</span>
+                    {c.ratingCount > 0 && <span><span className="text-amber-400">★</span> {Number(c.rating).toFixed(1)} ({c.ratingCount})</span>}
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <button onClick={() => navigate(`/cactus/${c.id}`)} aria-label={`View ${c.name}`}
+                      className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+                      <Eye className="w-4 h-4" aria-hidden />
+                    </button>
+                    <button onClick={() => openEdit(c)} aria-label={`Edit ${c.name}`}
+                      className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-cactus-600 hover:border-cactus-300">
+                      <Pencil className="w-4 h-4" aria-hidden />
+                    </button>
+                    <button onClick={() => handleDelete(c.id, c.name)} disabled={deleteId === c.id} aria-label={`Delete ${c.name}`}
+                      className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-red-500 hover:border-red-300 disabled:opacity-40">
+                      {deleteId === c.id
+                        ? <span className="w-4 h-4 block border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        : <Trash2 className="w-4 h-4" aria-hidden />}
+                    </button>
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
@@ -590,7 +734,9 @@ export function AdminPage() {
                       ) : <span className="text-xs text-gray-300 dark:text-gray-600">—</span>}
                     </td>
                     <td className="px-4 py-3 text-center">
-                      {c.hasAuction ? <Badge variant="danger" pulse>Live</Badge> : <Badge variant="outline">Buy Now</Badge>}
+                      {c.hasAuction && isAuctionScheduled(c.auctionStartsAt)
+                        ? <span title={`Bidding opens ${formatAuctionStart(c.auctionStartsAt!)}`}><Badge variant="info">Scheduled</Badge></span>
+                        : c.hasAuction ? <Badge variant="danger" pulse>Live</Badge> : <Badge variant="outline">Buy Now</Badge>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
@@ -628,9 +774,13 @@ export function AdminPage() {
           </>
         )}
       </div>
+      </div>
+
       {/* ════════════════════════════════════════════════════════
           PAYMENT VERIFICATION SECTION
       ════════════════════════════════════════════════════════ */}
+      <div role="tabpanel" id="admin-panel-payments" aria-labelledby="admin-tab-payments"
+        hidden={activeTab !== 'payments'}>
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-gray-100 dark:border-gray-800 bg-amber-50 dark:bg-amber-950/30">
@@ -641,7 +791,7 @@ export function AdminPage() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Manually verify Google Pay / UPI transactions</p>
             </div>
             {pendingOrders.length > 0 && (
-              <span className="bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+              <span className="bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap">
                 {pendingOrders.length} pending
               </span>
             )}
@@ -692,8 +842,8 @@ export function AdminPage() {
             <div key={order.id} className={cn('border-b border-gray-100 dark:border-gray-800 last:border-0 transition-all', isDone && 'opacity-50')}>
 
               {/* Row */}
-              <div className="flex items-center gap-4 px-5 py-4 flex-wrap">
-                <div className="flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 px-4 sm:px-5 py-4">
+                <div className="w-full sm:flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className="font-mono text-sm font-semibold text-gray-900 dark:text-white">
                       CM-{String(order.id).padStart(6, '0')}
@@ -701,9 +851,9 @@ export function AdminPage() {
                     <PayStatusBadge status={order.paymentStatus} />
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    {order.firstName} {order.lastName}
-                    <span className="text-gray-300 dark:text-gray-600 mx-1">·</span>
-                    {order.email}
+                    <span className="font-medium text-gray-800 dark:text-gray-200">{order.firstName} {order.lastName}</span>
+                    <span className="hidden sm:inline text-gray-300 dark:text-gray-600 mx-1">·</span>
+                    <span className="block sm:inline break-all">{order.email}</span>
                   </p>
                   <div className="flex items-center gap-4 mt-1 flex-wrap">
                     <span className="text-sm font-semibold text-cactus-700 dark:text-cactus-400">₹{order.total.toFixed(2)}</span>
@@ -715,18 +865,18 @@ export function AdminPage() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="grid grid-cols-3 sm:flex items-center gap-2 w-full sm:w-auto flex-shrink-0">
                   <button onClick={() => togglePvExpand(order.id)}
-                    className="px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    className="px-3 py-2 sm:py-1.5 text-xs whitespace-nowrap border border-gray-200 dark:border-gray-700 rounded-lg text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                     {isExpanded ? 'Hide ▲' : 'Details ▼'}
                   </button>
                   <button onClick={() => handleVerify(order.id, 'approved')} disabled={!!acting || isDone}
-                    className="px-4 py-1.5 text-xs font-semibold bg-cactus-600 hover:bg-cactus-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5">
+                    className="px-3 sm:px-4 py-2 sm:py-1.5 text-xs font-semibold whitespace-nowrap bg-cactus-600 hover:bg-cactus-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center justify-center gap-1.5">
                     {acting === order.id ? <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> : '✓'}
                     Approve
                   </button>
                   <button onClick={() => handleVerify(order.id, 'rejected')} disabled={!!acting || isDone}
-                    className="px-4 py-1.5 text-xs font-semibold bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg transition-colors">
+                    className="px-3 sm:px-4 py-2 sm:py-1.5 text-xs font-semibold whitespace-nowrap bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg transition-colors">
                     ✕ Reject
                   </button>
                 </div>
@@ -835,11 +985,23 @@ export function AdminPage() {
           );
         })}
       </div>
+      </div>
 
       {/* ════════════════════════════════════════════════════════
           SHIPMENTS & TRACKING SECTION
       ════════════════════════════════════════════════════════ */}
-      <ShipmentManagementSection refreshKey={shipmentsRefresh} />
+      <div role="tabpanel" id="admin-panel-shipments" aria-labelledby="admin-tab-shipments"
+        hidden={activeTab !== 'shipments'}>
+        <ShipmentManagementSection refreshKey={shipmentsRefresh} />
+      </div>
+
+      {/* ════════════════════════════════════════════════════════
+          USER INFO SECTION
+      ════════════════════════════════════════════════════════ */}
+      <div role="tabpanel" id="admin-panel-users" aria-labelledby="admin-tab-users"
+        hidden={activeTab !== 'users'}>
+        <UserInfoSection />
+      </div>
 
       {/* ── Add / Edit Modal ──────────────────────────────── */}
       {modalMode && (
@@ -868,7 +1030,8 @@ export function AdminPage() {
               </Field>
 
               <div>
-                <ImagePreviewGrid files={imageFiles} onRemove={i => setImageFiles(prev => prev.filter((_, idx) => idx !== i))} />
+                <ImagePreviewGrid files={imageFiles} onCrop={setRecropIndex}
+                  onRemove={i => setImageFiles(prev => prev.filter((_, idx) => idx !== i))} />
                 <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
                 <button type="button" onClick={() => fileInputRef.current?.click()} disabled={imageFiles.length >= 5}
                   className={cn('w-full py-2.5 border-2 border-dashed rounded-lg text-sm font-medium transition-colors',
@@ -877,7 +1040,10 @@ export function AdminPage() {
                       : 'border-cactus-300 dark:border-cactus-700 text-cactus-600 dark:text-cactus-400 hover:bg-cactus-50 dark:hover:bg-cactus-950 cursor-pointer')}>
                   {imageFiles.length >= 5 ? '5/5 photos uploaded' : '+ Upload Photos'}
                 </button>
-                {modalMode === 'edit' && <p className="text-[11px] text-gray-400 mt-1">Leave empty to keep existing photos.</p>}
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Optional: tap <Crop className="inline w-3 h-3 -mt-0.5" aria-hidden /> Crop on any photo to choose the exact part to show.
+                  {modalMode === 'edit' && ' Leave empty to keep existing photos.'}
+                </p>
               </div>
 
               <Field label="Category" required error={formErrors.categoryId}>
@@ -953,9 +1119,106 @@ export function AdminPage() {
                         onChange={e => setForm({ ...form, auctionHours: e.target.value })}
                         className={cn(inputCls(formErrors.auctionHours), 'text-xs py-2')} />
                     </Field>
-                    <p className="col-span-3 text-[11px] text-gray-400">
-                      Auction ends in {form.auctionHours || '?'} hours from now.
-                    </p>
+                    {/* ── Start time ─────────────────────────────── */}
+                    <div className="sm:col-span-3 rounded-xl border-2 border-blue-200 dark:border-blue-900 bg-gradient-to-br from-blue-50 to-white dark:from-blue-950/50 dark:to-gray-900 p-4 flex flex-col gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                          <CalendarClock className="w-4 h-4" aria-hidden />
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">When should bidding open?</p>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            {editAuctionStarted ? 'This auction has already started, so its start time is fixed.' : 'Times are in your local time zone.'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Now / later choice */}
+                      <div role="radiogroup" aria-label="Auction start" className="grid grid-cols-2 gap-2">
+                        {([
+                          { key: 'now',   icon: Zap,          title: 'Start immediately',  sub: 'Opens when you save' },
+                          { key: 'later', icon: CalendarDays, title: 'Schedule for later', sub: 'Pick a date & time' },
+                        ] as const).map(({ key, icon: Icon, title, sub }) => {
+                          const selected = key === 'later' ? !!form.auctionStart : !form.auctionStart;
+                          return (
+                            <button key={key} type="button" role="radio" aria-checked={selected} disabled={editAuctionStarted}
+                              onClick={() => setForm({ ...form, auctionStart: key === 'later' ? (form.auctionStart || defaultScheduledStart()) : '' })}
+                              className={cn(
+                                'flex items-center gap-2.5 p-3 rounded-lg border-2 text-left transition-all disabled:opacity-50 disabled:cursor-not-allowed',
+                                selected
+                                  ? 'border-blue-500 bg-white dark:bg-gray-900 shadow-sm ring-2 ring-blue-500/20'
+                                  : 'border-transparent bg-white/60 dark:bg-gray-800/60 hover:border-blue-200 dark:hover:border-blue-800',
+                              )}>
+                              <Icon className={cn('w-4 h-4 flex-shrink-0', selected ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400')} aria-hidden />
+                              <span className="min-w-0">
+                                <span className={cn('block text-xs font-semibold', selected ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300')}>{title}</span>
+                                <span className="block text-[10px] text-gray-400">{sub}</span>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      {/* Date + time pickers */}
+                      {form.auctionStart && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {([
+                            { label: 'Date', icon: CalendarDays, type: 'date', value: form.auctionStart.slice(0, 10),
+                              min: toDateTimeLocalValue(new Date().toISOString()).slice(0, 10),
+                              set: (v: string) => v ? `${v}T${form.auctionStart.slice(11, 16) || '11:00'}` : '' },
+                            { label: 'Time', icon: Clock, type: 'time', value: form.auctionStart.slice(11, 16), min: undefined,
+                              set: (v: string) => `${form.auctionStart.slice(0, 10)}T${v || '11:00'}` },
+                          ] as const).map(({ label, icon: Icon, type, value, min, set }) => (
+                            <label key={label} className="flex flex-col gap-1.5">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{label}</span>
+                              <span className="relative">
+                                <Icon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 pointer-events-none" aria-hidden />
+                                <input type={type} value={value} min={min} disabled={editAuctionStarted}
+                                  onChange={e => setForm({ ...form, auctionStart: set(e.target.value) })}
+                                  className={cn(
+                                    'w-full pl-9 pr-3 py-2.5 text-sm font-medium rounded-lg border-2 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100',
+                                    '[color-scheme:light] dark:[color-scheme:dark] cursor-pointer',
+                                    'focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-colors',
+                                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                                    formErrors.auctionStart ? 'border-red-400' : 'border-blue-200 dark:border-blue-800 hover:border-blue-400',
+                                  )} />
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {formErrors.auctionStart && <p className="text-xs text-red-500 -mt-1">{formErrors.auctionStart}</p>}
+
+                      {/* Opens / closes summary */}
+                      {(() => {
+                        const start = form.auctionStart ? new Date(form.auctionStart) : null;
+                        const hrs   = parseFloat(form.auctionHours);
+                        if (start && !isNaN(start.getTime()) && !isNaN(hrs)) {
+                          const end = new Date(start.getTime() + hrs * 3_600_000);
+                          return (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                              {[
+                                { icon: CalendarClock, label: 'Bidding opens',  when: start, cls: 'text-blue-700 dark:text-blue-300' },
+                                { icon: Flag,          label: 'Bidding closes', when: end,   cls: 'text-red-600 dark:text-red-400' },
+                              ].map(({ icon: Icon, label, when, cls }) => (
+                                <div key={label} className="flex items-start gap-2 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 px-3 py-2">
+                                  <Icon className={cn('w-3.5 h-3.5 mt-0.5 flex-shrink-0', cls)} aria-hidden />
+                                  <span>
+                                    <span className="block text-[10px] uppercase tracking-wider text-gray-400">{label}</span>
+                                    <span className={cn('font-semibold', cls)}>{formatAuctionStart(when.toISOString(), { weekday: true }).replace(/ (AM|PM)$/, '\u00a0$1')}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return (
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                            Auction ends {form.auctionHours || '?'} hours from {editAuctionStarted ? 'now' : 'when you save'}.
+                          </p>
+                        );
+                      })()}
+                    </div>
                   </div>
                 )}
               </div>
@@ -983,6 +1246,20 @@ export function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* ── Crop / adjust photo ───────────────────────────── */}
+      {modalMode && (() => {
+        if (recropIndex === null || !imageFiles[recropIndex]) return null;
+        const current  = imageFiles[recropIndex];
+        const original = originalPhotos.current.get(current) ?? current;
+        return (
+          // Crops always start from the full original; "Use original" undoes an earlier crop
+          <ImageCropModal file={original} discardLabel="Cancel"
+            onApply={f => finishCrop(f, original)}
+            onUseOriginal={current !== original ? () => finishCrop(original, original) : undefined}
+            onDiscard={() => setRecropIndex(null)} />
+        );
+      })()}
     </div>
   );
 }

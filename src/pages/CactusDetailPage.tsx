@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { CalendarClock, Gavel }  from 'lucide-react';
 import { useAuth }               from '../context/AuthContext';
 import { useAuthModal }          from '../context/AuthModalContext';
 import { useCart }               from '../context/CartContext';
@@ -17,6 +18,7 @@ import { CactusDetailSkeleton }  from '../components/ui/LoadingSkeleton';
 import { cn }                    from '../utils/cn';
 import { isSoldOut }             from '../utils/stock';
 import { isSeedsCategory, SEEDS_PRICE_SUFFIX } from '../utils/seeds';
+import { formatAuctionStart } from '../utils/auctionSchedule';
 
 // ── Care tips by category ─────────────────────────────────────
 const CARE_TIPS: Record<string, { icon: string; title: string; detail: string }[]> = {
@@ -58,21 +60,25 @@ const CARE_TIPS: Record<string, { icon: string; title: string; detail: string }[
 };
 
 // ── Countdown ─────────────────────────────────────────────────
+function remaining(target: string | null) {
+  const ms = target ? new Date(target).getTime() - Date.now() : 0;
+  if (ms <= 0) return { d: 0, h: 0, m: 0, s: 0, expired: true };
+  return {
+    d: Math.floor(ms / 86_400_000),
+    h: Math.floor(ms / 3_600_000),            // total hours (the live countdown shows hours only)
+    m: Math.floor((ms % 3_600_000) / 60_000),
+    s: Math.floor((ms % 60_000) / 1_000),
+    expired: false,
+  };
+}
+
 function useCountdown(endsAt: string | null) {
-  const [time, setTime] = useState({ h: 0, m: 0, s: 0, expired: true });
+  // Computed up front so the first render doesn't briefly show "expired"
+  const [time, setTime] = useState(() => remaining(endsAt));
   useEffect(() => {
-    if (!endsAt) return;
-    const calc = () => {
-      const ms = new Date(endsAt).getTime() - Date.now();
-      if (ms <= 0) return setTime({ h: 0, m: 0, s: 0, expired: true });
-      setTime({
-        h: Math.floor(ms / 3_600_000),
-        m: Math.floor((ms % 3_600_000) / 60_000),
-        s: Math.floor((ms % 60_000) / 1_000),
-        expired: false,
-      });
-    };
+    const calc = () => setTime(remaining(endsAt));
     calc();
+    if (!endsAt) return;
     const id = setInterval(calc, 1_000);
     return () => clearInterval(id);
   }, [endsAt]);
@@ -228,7 +234,10 @@ export function CactusDetailPage() {
     return () => { cancelled = true; };
   }, [auctionCactusId, isLoggedIn]);
 
-  const countdown = useCountdown(auction?.endsAt ?? null);
+  const countdown      = useCountdown(auction?.endsAt ?? null);
+  // Scheduled auction: counts down to the start; when it reaches zero the panel switches to live bidding
+  const startCountdown = useCountdown(auction?.startsAt ?? null);
+  const scheduled      = !!auction && !startCountdown.expired;
 
   const bidOptions = auction
     ? Array.from({ length: 8 }, (_, i) =>
@@ -241,7 +250,7 @@ export function CactusDetailPage() {
       openModal('Please log in to place a bid. Your bid history is saved to your account.', 'login');
       return;
     }
-    if (!cactus || !auction || placing) return;
+    if (!cactus || !auction || placing || scheduled) return;
     setPlacing(true); setBidError(''); setBidSuccess(false);
     try {
       const res = await fetch('/api/auction/bid', {
@@ -338,8 +347,10 @@ export function CactusDetailPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-        {/* ── Left: Gallery (5-thumbnail strip) ────────────── */}
-        <CactusGallery media={cactus.media} name={cactus.name} />
+        {/* ── Left: Gallery — stays in view while the details column scrolls ── */}
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <CactusGallery media={cactus.media} name={cactus.name} />
+        </div>
 
         {/* ── Right: Info + actions + accordions ───────────── */}
         <div className="flex flex-col gap-4">
@@ -347,7 +358,9 @@ export function CactusDetailPage() {
           {/* Badges */}
           <div className="flex items-center gap-2 flex-wrap">
             <Badge variant="success">{cactus.categoryName}</Badge>
-            {auction && <Badge variant="danger" pulse>Live Auction</Badge>}
+            {auction && (scheduled
+              ? <Badge variant="info">Coming Soon</Badge>
+              : <Badge variant="danger" pulse>Live Auction</Badge>)}
             <span className="text-xs text-gray-400 dark:text-gray-500">ID #{cactus.id}</span>
           </div>
 
@@ -372,16 +385,29 @@ export function CactusDetailPage() {
           {auction && (
             <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
               <div className="flex items-center gap-2 px-5 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <span>🔨</span>
-                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">Live Auction</span>
+                <Gavel className="w-4 h-4 text-gray-500 dark:text-gray-400" strokeWidth={1.75} aria-hidden />
+                <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-widest">{scheduled ? 'Upcoming Auction' : 'Live Auction'}</span>
               </div>
               <div className="p-5 flex flex-col gap-4">
+
+                {/* Scheduled: when bidding opens */}
+                {scheduled && (
+                  <div className="flex items-start gap-3 rounded-lg px-4 py-3 bg-blue-50 dark:bg-blue-950/60 border border-blue-100 dark:border-blue-900 text-blue-800 dark:text-blue-200">
+                    <CalendarClock className="w-5 h-5 mt-0.5 flex-shrink-0" aria-hidden />
+                    <p className="text-sm leading-relaxed">
+                      <span className="font-semibold">Coming Soon!</span> This cactus auction will be available for bidding on{' '}
+                      <span className="font-semibold">{formatAuctionStart(auction.startsAt, { weekday: true })}</span>.
+                    </p>
+                  </div>
+                )}
 
                 {/* Starting / Current */}
                 <div className="grid grid-cols-2 gap-3">
                   {[
                     { label: 'Starting Price', value: `₹${Number(auction.startPrice).toFixed(2)}`,  red: false },
-                    { label: 'Current Bid',    value: `₹${Number(auction.currentPrice).toFixed(2)}`, red: true  },
+                    scheduled
+                      ? { label: 'Bid Increment', value: `₹${Number(auction.bidIncrement).toFixed(2)}`, red: false }
+                      : { label: 'Current Bid',   value: `₹${Number(auction.currentPrice).toFixed(2)}`, red: true  },
                   ].map(({ label, value, red }) => (
                     <div key={label} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 border border-gray-100 dark:border-gray-700">
                       <p className="text-xs text-gray-400 mb-1">{label}</p>
@@ -390,8 +416,27 @@ export function CactusDetailPage() {
                   ))}
                 </div>
 
-                {/* Countdown */}
-                {!countdown.expired ? (
+                {/* Countdown — to the start while scheduled, otherwise to the end */}
+                {scheduled ? (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-medium">Bidding Opens In</p>
+                    <div className="flex gap-2">
+                      {[
+                        { val: startCountdown.d,      label: 'days' },
+                        { val: startCountdown.h % 24, label: 'hrs'  },
+                        { val: startCountdown.m,      label: 'min'  },
+                        { val: startCountdown.s,      label: 'sec'  },
+                      ].map(({ val, label }) => (
+                        <div key={label} className="flex-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg py-2 text-center">
+                          <span className="block font-display text-2xl text-gray-900 dark:text-white">
+                            {String(val).padStart(2, '0')}
+                          </span>
+                          <span className="text-[10px] text-gray-400 uppercase tracking-widest">{label}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : !countdown.expired ? (
                   <div>
                     <p className="text-xs text-gray-400 mb-2 uppercase tracking-wider font-medium">Time Remaining</p>
                     <div className="flex gap-2">
@@ -415,8 +460,8 @@ export function CactusDetailPage() {
                   </p>
                 )}
 
-                {/* Bid controls */}
-                {!countdown.expired && (
+                {/* Bid controls — only once bidding has opened */}
+                {!scheduled && !countdown.expired && (
                   <div className="flex flex-col gap-3">
                     <select
                       value={selectedBid}
@@ -437,7 +482,7 @@ export function CactusDetailPage() {
                     <button
                       onClick={handlePlaceBid}
                       disabled={placing}
-                      className="w-full py-3.5 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+                      className="w-full py-3.5 rounded-xl bg-cactus-600 hover:bg-cactus-700 active:bg-cactus-800 disabled:opacity-60 text-white font-semibold text-base transition-all duration-200 shadow-sm hover:shadow-md flex items-center justify-center gap-2"
                     >
                       {placing
                         ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Placing bid…</>
