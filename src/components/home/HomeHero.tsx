@@ -69,7 +69,7 @@ export function HomeHero({ onShopClick }: { onShopClick: () => void }) {
         </div>
 
         {/* ── Photo collage (newest listings) ────────────── */}
-        <div className="hidden md:grid grid-cols-2 grid-rows-2 gap-3 h-[340px] lg:h-[380px]">
+        <div className="grid grid-cols-2 grid-rows-2 gap-2 sm:gap-3 h-[240px] sm:h-[300px] md:h-[340px] lg:h-[380px]">
           {loading && photos.length === 0
             ? [0, 1, 2].map(i => (
                 <div key={i} className={cn('rounded-2xl bg-white/10 animate-pulse', i === 0 && 'row-span-2')} />
