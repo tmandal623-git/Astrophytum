@@ -33,8 +33,8 @@ export function HomeHero({ onShopClick }: { onShopClick: () => void }) {
             Rare &amp; collectible Astrophytum
           </span>
 
-          <h1 className="font-display text-4xl sm:text-5xl leading-[1.1] mt-5">
-            Rare cacti,<br />grown with care.
+          <h1 className="font-display text-2xl sm:text-4xl md:text-5xl leading-[1.1] mt-4 sm:mt-5">
+            Rare cacti,<br className="hidden sm:block" /> grown with care.
           </h1>
           <p className="text-base text-cactus-100/80 mt-4 max-w-md leading-relaxed">
             Hand-picked Astrophytum cultivars, grafts and seeds from the {STORE.name} nursery.
