@@ -1,22 +1,26 @@
 // src/components/sidebar/Sidebar.tsx
 // Categories nav item removed.
 
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { ChevronsLeft, Gavel, HandCoins, House, Package, Settings, ShoppingCart } from 'lucide-react';
+import { Gavel, HandCoins, House, Package, Settings, ShoppingCart } from 'lucide-react';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { cn } from '../../utils/cn';
 
 interface SidebarProps {
-  collapsed:        boolean;
-  mobileOpen:       boolean;
-  onToggleCollapse: () => void;
-  onClose:          () => void;
+  mobileOpen: boolean;
+  onClose:    () => void;
 }
 
-export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: SidebarProps) {
+// Desktop: a narrow icon rail that expands over the page while hovered or
+// focused. Mobile: a full-width drawer (the lg: classes don't apply).
+export function Sidebar({ mobileOpen, onClose }: SidebarProps) {
   const { totalItems } = useCart();
   const { isAdmin }    = useAuth();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const collapsed = !hovered && !focused;
 
   const NAV_SECTIONS = [
     {
@@ -61,11 +65,16 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
 
   return (
     <aside
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      // Keyboard focus only, so a clicked link doesn't hold the menu open
+      onFocus={e => { if (e.target.matches(':focus-visible')) setFocused(true); }}
+      onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false); }}
       className={cn(
         'fixed top-0 left-0 h-screen supports-[height:100dvh]:h-dvh z-50 flex flex-col',
         'bg-cactus-950 text-cactus-100',
         'transition-all duration-300 ease-in-out overflow-hidden',
-        collapsed ? 'lg:w-16' : 'lg:w-60',
+        collapsed ? 'lg:w-16' : 'lg:w-60 lg:shadow-2xl lg:shadow-black/40',
         'w-60',
         mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
       )}
@@ -120,9 +129,10 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
                     )}>
                       {item.label}
                     </span>
-                    {item.badge !== undefined && !collapsed && (
+                    {item.badge !== undefined && (
                       <span className={cn(
                         'ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full',
+                        collapsed && 'lg:hidden',
                         item.to === '/my-cart'
                           ? 'bg-cactus-400 text-white'
                           : 'bg-amber-400 text-amber-900',
@@ -132,7 +142,7 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
                     )}
                     {/* Dot on collapsed cart */}
                     {collapsed && item.badge !== undefined && item.to === '/my-cart' && (
-                      <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-cactus-400 rounded-full" />
+                      <span className="hidden lg:block absolute top-1.5 right-1.5 w-2 h-2 bg-cactus-400 rounded-full" />
                     )}
                   </>
                 )}
@@ -142,17 +152,6 @@ export function Sidebar({ collapsed, mobileOpen, onToggleCollapse, onClose }: Si
         ))}
       </nav>
 
-      {/* Collapse toggle */}
-      <button
-        onClick={onToggleCollapse}
-        className="hidden lg:flex items-center gap-3 px-5 py-4 border-t border-white/10 text-green-200/60 hover:text-white transition-colors duration-150 text-sm flex-shrink-0"
-      >
-        <ChevronsLeft aria-hidden strokeWidth={1.75}
-          className={cn('w-5 h-5 mx-0.5 flex-shrink-0 transition-transform duration-300', collapsed ? 'rotate-180' : 'rotate-0')} />
-        <span className={cn('whitespace-nowrap transition-all duration-200', collapsed ? 'lg:opacity-0 lg:w-0 lg:overflow-hidden' : 'opacity-100')}>
-          Collapse
-        </span>
-      </button>
     </aside>
   );
 }

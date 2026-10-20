@@ -13,8 +13,7 @@ const FOOTER_LINKS = [
 ];
 
 export function MainLayout() {
-  const [sidebarOpen,      setSidebarOpen]      = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { pathname } = useLocation();
 
@@ -32,15 +31,12 @@ export function MainLayout() {
       )}
 
       <Sidebar
-        collapsed={sidebarCollapsed}
         mobileOpen={sidebarOpen}
-        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className={`flex flex-col flex-1 min-w-0 transition-all duration-300 ${
-        sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-60'
-      }`}>
+      {/* Content leaves room for the icon rail; the expanded sidebar overlays it */}
+      <div className="flex flex-col flex-1 min-w-0 lg:ml-16">
         <Header
           onMenuClick={() => setSidebarOpen(true)}
           theme={theme}
