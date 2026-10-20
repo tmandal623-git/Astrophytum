@@ -754,6 +754,180 @@ app.put('/api/auth/my-orders/:orderId/reviews/:cactusId', authenticate, async (r
 });
 
 // ════════════════════════════════════════════════════════════
+//  AUTH — SAVED ADDRESSES  (protected)
+//  A user's address book; checkout copies the chosen one onto the order,
+//  so editing or deleting an address never changes past orders.
+// ════════════════════════════════════════════════════════════
+const MAX_ADDRESSES = 10;
+const ADDRESS_FIELDS = `
+  id, label, first_name AS "firstName", last_name AS "lastName", email, phone,
+  line1, line2, city, state, zip, country, is_default AS "isDefault",
+  created_at AS "createdAt", updated_at AS "updatedAt"`;
+
+// Validates and trims an address from the request body. Throws a 400 error naming the bad field.
+function parseAddress(body) {
+  const text = (key, { required = false, max = 100 } = {}) => {
+    const value = String(body?.[key] ?? '').trim();
+    if (required && !value)
+      throw Object.assign(new Error(`${key} is required`), { status: 400 });
+    if (value.length > max)
+      throw Object.assign(new Error(`${key} must be at most ${max} characters`), { status: 400 });
+    return value || null;
+  };
+  const address = {
+    label:     text('label', { max: 30 }) ?? 'Home',
+    firstName: text('firstName', { required: true }),
+    lastName:  text('lastName',  { required: true }),
+    email:     text('email',     { required: true, max: 255 }),
+    phone:     text('phone',     { max: 20 }),
+    line1:     text('line1',     { required: true, max: 200 }),
+    line2:     text('line2',     { max: 200 }),
+    city:      text('city',      { required: true }),
+    state:     text('state',     { required: true }),
+    zip:       text('zip',       { required: true, max: 20 }),
+    country:   text('country',   { required: true, max: 60 }),
+  };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.email))
+    throw Object.assign(new Error('email must be a valid email address'), { status: 400 });
+  return address;
+}
+
+const parseAddressId = (raw) => {
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id < 1) throw Object.assign(new Error('Invalid address id'), { status: 400 });
+  return id;
+};
+
+app.get('/api/auth/addresses', authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${ADDRESS_FIELDS} FROM user_addresses
+       WHERE user_id = $1::uuid ORDER BY is_default DESC, updated_at DESC, id DESC`,
+      [req.userId]);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /api/auth/addresses:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/addresses', authenticate, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const a = parseAddress(req.body);
+    await client.query('BEGIN');
+    // Lock the user's row so two concurrent saves can't both pass the limit check
+    await client.query('SELECT 1 FROM users WHERE id = $1::uuid FOR UPDATE', [req.userId]);
+    const { rows: [{ count }] } = await client.query(
+      'SELECT COUNT(*)::int AS count FROM user_addresses WHERE user_id = $1::uuid', [req.userId]);
+    if (count >= MAX_ADDRESSES)
+      throw Object.assign(new Error(`You can save up to ${MAX_ADDRESSES} addresses — delete one first`), { status: 409 });
+
+    // The first address is always the default
+    const makeDefault = count === 0 || req.body?.isDefault === true;
+    if (makeDefault)
+      await client.query('UPDATE user_addresses SET is_default = FALSE WHERE user_id = $1::uuid AND is_default', [req.userId]);
+    const { rows } = await client.query(
+      `INSERT INTO user_addresses
+         (user_id, label, first_name, last_name, email, phone, line1, line2, city, state, zip, country, is_default)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       RETURNING ${ADDRESS_FIELDS}`,
+      [req.userId, a.label, a.firstName, a.lastName, a.email, a.phone,
+       a.line1, a.line2, a.city, a.state, a.zip, a.country, makeDefault]);
+    await client.query('COMMIT');
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (!err.status) console.error('POST /api/auth/addresses:', err.message);
+    res.status(err.status ?? 500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Replaces the address. isDefault: true makes it the default; to move the default
+// elsewhere, set it on another address (there is always exactly one while any exist).
+app.put('/api/auth/addresses/:id', authenticate, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = parseAddressId(req.params.id);
+    const a  = parseAddress(req.body);
+    const makeDefault = req.body?.isDefault === true;
+    await client.query('BEGIN');
+    if (makeDefault)
+      await client.query(
+        `UPDATE user_addresses SET is_default = FALSE
+         WHERE user_id = $1::uuid AND is_default AND id <> $2`, [req.userId, id]);
+    const { rows } = await client.query(
+      `UPDATE user_addresses SET
+         label = $3, first_name = $4, last_name = $5, email = $6, phone = $7,
+         line1 = $8, line2 = $9, city = $10, state = $11, zip = $12, country = $13,
+         is_default = is_default OR $14, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2::uuid
+       RETURNING ${ADDRESS_FIELDS}`,
+      [id, req.userId, a.label, a.firstName, a.lastName, a.email, a.phone,
+       a.line1, a.line2, a.city, a.state, a.zip, a.country, makeDefault]);
+    if (!rows.length) throw Object.assign(new Error('Address not found'), { status: 404 });
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (!err.status) console.error('PUT /api/auth/addresses/:id:', err.message);
+    res.status(err.status ?? 500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.put('/api/auth/addresses/:id/default', authenticate, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = parseAddressId(req.params.id);
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE user_addresses SET is_default = FALSE
+       WHERE user_id = $1::uuid AND is_default AND id <> $2`, [req.userId, id]);
+    const { rowCount } = await client.query(
+      'UPDATE user_addresses SET is_default = TRUE WHERE id = $1 AND user_id = $2::uuid', [id, req.userId]);
+    if (!rowCount) throw Object.assign(new Error('Address not found'), { status: 404 });
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (!err.status) console.error('PUT /api/auth/addresses/:id/default:', err.message);
+    res.status(err.status ?? 500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Deleting the default promotes the most recently updated remaining address
+app.delete('/api/auth/addresses/:id', authenticate, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = parseAddressId(req.params.id);
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      'DELETE FROM user_addresses WHERE id = $1 AND user_id = $2::uuid RETURNING is_default',
+      [id, req.userId]);
+    if (!rows.length) throw Object.assign(new Error('Address not found'), { status: 404 });
+    if (rows[0].is_default)
+      await client.query(
+        `UPDATE user_addresses SET is_default = TRUE
+         WHERE id = (SELECT id FROM user_addresses WHERE user_id = $1::uuid
+                     ORDER BY updated_at DESC, id DESC LIMIT 1)`, [req.userId]);
+    await client.query('COMMIT');
+    res.status(204).end();
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (!err.status) console.error('DELETE /api/auth/addresses/:id:', err.message);
+    res.status(err.status ?? 500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ════════════════════════════════════════════════════════════
 //  CATEGORIES
 // ════════════════════════════════════════════════════════════
 app.get('/api/categories', async (req, res) => {
@@ -1908,6 +2082,29 @@ async function ensureSchema() {
   await pool.query(`ALTER TABLE auction ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ`);
   await pool.query(`UPDATE auction SET starts_at = COALESCE(created_at, NOW()) WHERE starts_at IS NULL`);
   await pool.query(`ALTER TABLE auction ALTER COLUMN starts_at SET DEFAULT NOW(), ALTER COLUMN starts_at SET NOT NULL`);
+
+  // Saved delivery addresses — at most one default per user (see scripts/user-addresses.sql)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_addresses (
+      id          SERIAL       PRIMARY KEY,
+      user_id     UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      label       VARCHAR(30)  NOT NULL DEFAULT 'Home',
+      first_name  VARCHAR(100) NOT NULL,
+      last_name   VARCHAR(100) NOT NULL,
+      email       VARCHAR(255) NOT NULL,
+      phone       VARCHAR(20),
+      line1       VARCHAR(200) NOT NULL,
+      line2       VARCHAR(200),
+      city        VARCHAR(100) NOT NULL,
+      state       VARCHAR(100) NOT NULL,
+      zip         VARCHAR(20)  NOT NULL,
+      country     VARCHAR(60)  NOT NULL,
+      is_default  BOOLEAN      NOT NULL DEFAULT FALSE,
+      created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS user_addresses_user_idx ON user_addresses (user_id)`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS user_addresses_one_default ON user_addresses (user_id) WHERE is_default`);
 
   // Shipment & tracking — one shipment per order, plus a timestamped status history
   await pool.query(`

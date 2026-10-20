@@ -77,3 +77,28 @@ export interface PlaceBidPayload {
   userId:   string;
   amount:   number;
 }
+
+// Delivery address as entered in a form ('' = not given)
+export interface AddressInput {
+  label:     string;    // e.g. Home, Work
+  firstName: string;
+  lastName:  string;
+  email:     string;
+  phone:     string;
+  line1:     string;
+  line2:     string;
+  city:      string;
+  state:     string;
+  zip:       string;
+  country:   string;    // ISO code, e.g. IN
+}
+
+// Address saved to the user's address book (GET /api/auth/addresses)
+export interface SavedAddress extends Omit<AddressInput, 'phone' | 'line2'> {
+  id:        number;
+  phone:     string | null;
+  line2:     string | null;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

@@ -1,7 +1,7 @@
 // src/components/header/Header.tsx
 import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate }           from 'react-router-dom';
-import { HandCoins, LogOut, Moon, Package, Search, Settings, ShoppingCart, Sun, UserRound } from 'lucide-react';
+import { HandCoins, LogOut, MapPin, Moon, Package, Search, Settings, ShoppingCart, Sun, UserRound } from 'lucide-react';
 import { useAuth }                     from '../../context/AuthContext';
 import { useAuthModal }                from '../../context/AuthModalContext';
 import { useToast }                    from '../../context/ToastContext';
@@ -202,6 +202,7 @@ export function Header({ onMenuClick, theme, onToggleTheme }: HeaderProps) {
                   { icon: HandCoins,    label: 'My Bids',     onClick: () => { navigate('/profile?tab=bids');   setDropdownOpen(false); } },
                   { icon: ShoppingCart, label: 'My Cart',     onClick: () => { navigate('/my-cart');   setDropdownOpen(false); } },
                   { icon: Package,      label: 'My Orders',   onClick: () => { navigate('/profile?tab=orders'); setDropdownOpen(false); } },
+                  { icon: MapPin,       label: 'My Addresses', onClick: () => { navigate('/profile?tab=addresses'); setDropdownOpen(false); } },
                   ...(user.role === 'admin'
                     ? [{ icon: Settings, label: 'Admin Dashboard', onClick: () => { navigate('/admin'); setDropdownOpen(false); } }]
                     : []

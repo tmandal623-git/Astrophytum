@@ -16,9 +16,12 @@ import { useCart }             from '../context/CartContext';
 import { useToast }            from '../context/ToastContext';
 import { cn }                  from '../utils/cn';
 import { SHIPPING_COST } from '../config/store';
-import { SORTED_COUNTRIES, getCountry, getStates, getCities } from '../utils/locations';
-
-const OTHER_CITY = '__other__';
+import { getCountry } from '../utils/locations';
+import { AddressInput, SavedAddress } from '../types';
+import { addressService } from '../services/addressService';
+import { Field, inputCls } from '../components/ui/FormField';
+import { AddressCard } from '../components/address/AddressCard';
+import { AddressErrors, AddressForm, EMPTY_ADDRESS, toAddressInput, validateAddress } from '../components/address/AddressForm';
 
 // ── Config ────────────────────────────────────────────────────
 const TAX_RATE           = 0.00;
@@ -31,47 +34,15 @@ const GPAY_CONFIG = {
 };
 
 // ── Types ─────────────────────────────────────────────────────
-interface Address {
-  firstName: string; lastName:  string;
-  email:     string; phone:     string;
-  line1:     string; line2:     string;
-  city:      string; state:     string;
-  zip:       string; country:   string;
-}
 interface CardDetails { number: string; name: string; expiry: string; cvv: string; }
 type PaymentMethod = 'card' | 'paypal' | 'applepay' | 'googlepay';
 type Step          = 'address' | 'payment' | 'review';
 
-const EMPTY_ADDRESS: Address = {
-  firstName:'', lastName:'', email:'', phone:'',
-  line1:'', line2:'', city:'', state:'', zip:'', country:'IN',
-};
 const EMPTY_CARD: CardDetails = { number:'', name:'', expiry:'', cvv:'' };
 
 // ── Formatters ────────────────────────────────────────────────
 const fmtCard   = (v: string) => v.replace(/\D/g,'').slice(0,16).replace(/(.{4})/g,'$1 ').trim();
 const fmtExpiry = (v: string) => { const d=v.replace(/\D/g,'').slice(0,4); return d.length>2?`${d.slice(0,2)}/${d.slice(2)}`:d; };
-
-// ── Field component ───────────────────────────────────────────
-function Field({ label, error, required, children }: {
-  label: string; error?: string; required?: boolean; children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
-      {children}
-      {error && <p className="text-xs text-red-500">{error}</p>}
-    </div>
-  );
-}
-const inputCls = (err?: string) => cn(
-  'w-full px-3 py-2.5 text-sm border rounded-lg bg-white dark:bg-gray-900',
-  'text-gray-900 dark:text-gray-100 placeholder:text-gray-400',
-  'focus:outline-none focus:ring-2 focus:ring-cactus-500 transition-colors',
-  err ? 'border-red-400' : 'border-gray-200 dark:border-gray-700',
-);
 
 // ── Step bar ──────────────────────────────────────────────────
 function StepBar({ current }: { current: Step }) {
@@ -259,16 +230,22 @@ export function CheckoutPage() {
   const { showToast }        = useToast();
 
   const [step,          setStep]          = useState<Step>('address');
-  const [address,       setAddress]       = useState<Address>(EMPTY_ADDRESS);
+  const [address,       setAddress]       = useState<AddressInput>(EMPTY_ADDRESS);
   const [card,          setCard]          = useState<CardDetails>(EMPTY_CARD);
   const [method,        setMethod]        = useState<PaymentMethod>('googlepay');
   const [transactionId, setTransactionId] = useState('');
-  const [addrErr,       setAddrErr]       = useState<Partial<Record<keyof Address,string>>>({});
+  const [addrErr,       setAddrErr]       = useState<AddressErrors>({});
   const [cardErr,       setCardErr]       = useState<Partial<CardDetails>>({});
   const [txnErr,        setTxnErr]        = useState('');
   const [placing,       setPlacing]       = useState(false);
   const [apiError,      setApiError]      = useState('');
-  const [cityOther,     setCityOther]     = useState(false);
+  // Saved addresses: pick one, edit one, or enter a new one (optionally saving it)
+  const [saved,         setSaved]         = useState<SavedAddress[]>([]);
+  const [savedLoaded,   setSavedLoaded]   = useState(false);
+  const [selectedId,    setSelectedId]    = useState<number | 'new'>('new');
+  const [editingId,     setEditingId]     = useState<number | null>(null);
+  const [saveNew,       setSaveNew]       = useState(true);
+  const [savingAddr,    setSavingAddr]    = useState(false);
 
   const shipping = SHIPPING_COST;
   const tax      = subtotal * TAX_RATE;
@@ -280,6 +257,21 @@ export function CheckoutPage() {
     if (!isLoggedIn) openModal('Please log in to complete your purchase.', 'login');
     else closeModal();
   }, [authLoading, isLoggedIn]);
+
+  // Load the address book once logged in, starting on the default address
+  useEffect(() => {
+    if (!isLoggedIn || savedLoaded) return;
+    const prefillEmail = () => setAddress(a => ({ ...a, email: a.email || user?.email || '' }));
+    addressService.list()
+      .then(list => {
+        setSaved(list);
+        const preferred = list.find(a => a.isDefault) ?? list[0];
+        if (preferred) { setSelectedId(preferred.id); setAddress(toAddressInput(preferred)); }
+        else prefillEmail();
+      })
+      .catch(prefillEmail)   // checkout still works without saved addresses
+      .finally(() => setSavedLoaded(true));
+  }, [isLoggedIn, savedLoaded]);
 
   // Reset transaction ID when switching away from GPay
   useEffect(() => {
@@ -301,20 +293,52 @@ export function CheckoutPage() {
     );
   }
 
-  // ── Validation ────────────────────────────────────────────
-  const validateAddress = () => {
-    const e: typeof addrErr = {};
-    if (!address.firstName.trim()) e.firstName = 'Required';
-    if (!address.lastName.trim())  e.lastName  = 'Required';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address.email)) e.email = 'Valid email required';
-    if (!address.line1.trim())     e.line1     = 'Required';
-    if (!address.city.trim())      e.city      = 'Required';
-    if (!address.state.trim())     e.state     = 'Required';
-    if (!address.zip.trim())       e.zip       = 'Required';
-    setAddrErr(e);
-    return Object.keys(e).length === 0;
+  // ── Address selection ─────────────────────────────────────
+  const selectSaved = (a: SavedAddress) => {
+    setSelectedId(a.id); setEditingId(null); setAddrErr({});
+    setAddress(toAddressInput(a));
+  };
+  const selectNew = () => {
+    setSelectedId('new'); setEditingId(null); setAddrErr({});
+    setAddress({ ...EMPTY_ADDRESS, email: user?.email ?? '' });
+  };
+  const editSaved = (a: SavedAddress) => { selectSaved(a); setEditingId(a.id); };
+  const cancelEdit = () => {
+    const a = saved.find(x => x.id === editingId);
+    if (a) selectSaved(a);
   };
 
+  // Validates the chosen address, saves it when asked (new or edited), then moves on.
+  // A failed save only warns — the order still uses the address as entered.
+  const continueFromAddress = async () => {
+    const e = validateAddress(address);
+    setAddrErr(e);
+    if (Object.keys(e).length) {
+      // A saved address that's missing something opens for editing
+      if (selectedId !== 'new') setEditingId(selectedId);
+      return;
+    }
+    if (editingId !== null || (selectedId === 'new' && saveNew)) {
+      setSavingAddr(true);
+      try {
+        const result = editingId !== null
+          ? await addressService.update(editingId, address)
+          : await addressService.create(address);
+        setSaved(list => list.some(a => a.id === result.id)
+          ? list.map(a => a.id === result.id ? result : a)
+          : [...list, result]);
+        setSelectedId(result.id);
+        setEditingId(null);
+      } catch (err) {
+        showToast(`Address not saved: ${err instanceof Error ? err.message : 'unknown error'}`, 'error');
+      } finally {
+        setSavingAddr(false);
+      }
+    }
+    setStep('payment');
+  };
+
+  // ── Validation ────────────────────────────────────────────
   const validateCard = () => {
     if (method !== 'card') return true;
     const e: Partial<CardDetails> = {};
@@ -338,7 +362,7 @@ export function CheckoutPage() {
   };
 
   const handleNextStep = () => {
-    if (step === 'address' && validateAddress()) setStep('payment');
+    if (step === 'address') continueFromAddress();
     if (step === 'payment' && validatePayment()) setStep('review');
   };
 
@@ -496,74 +520,59 @@ export function CheckoutPage() {
           {step === 'address' && (
             <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4 sm:p-6">
               <h2 className="font-display text-xl text-gray-900 dark:text-white mb-5">Delivery Address</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="First Name" error={addrErr.firstName}>
-                  <input className={inputCls(addrErr.firstName)} placeholder="First Name" value={address.firstName} onChange={e => setAddress({...address,firstName:e.target.value})} />
-                </Field>
-                <Field label="Last Name" error={addrErr.lastName}>
-                  <input className={inputCls(addrErr.lastName)} placeholder="Last Name" value={address.lastName} onChange={e => setAddress({...address,lastName:e.target.value})} />
-                </Field>
-                <Field label="Email" error={addrErr.email}>
-                  <input type="email" className={inputCls(addrErr.email)} placeholder="email@gmail.com" value={address.email} onChange={e => setAddress({...address,email:e.target.value})} />
-                </Field>
-                <Field label="Phone">
-                  <input type="tel" className={inputCls()} placeholder="+91 78223 77667" value={address.phone} onChange={e => setAddress({...address,phone:e.target.value})} />
-                </Field>
-                <div className="sm:col-span-2">
-                  <Field label="Address Line 1" error={addrErr.line1}>
-                    <input className={inputCls(addrErr.line1)} placeholder="Address Line 1" value={address.line1} onChange={e => setAddress({...address,line1:e.target.value})} />
-                  </Field>
+              {!savedLoaded && isLoggedIn ? (
+                <div className="flex flex-col gap-3">
+                  {[1, 2].map(i => <div key={i} className="h-28 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />)}
                 </div>
-                <div className="sm:col-span-2">
-                  <Field label="Address Line 2 (optional)">
-                    <input className={inputCls()} placeholder="Address Line 2…" value={address.line2} onChange={e => setAddress({...address,line2:e.target.value})} />
-                  </Field>
-                </div>
-                <Field label="Country">
-                  <select
-                    className={inputCls()}
-                    value={address.country}
-                    onChange={e => { setCityOther(false); setAddress({...address,country:e.target.value,state:'',city:''}); }}
-                  >
-                    {SORTED_COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
-                  </select>
-                </Field>
-                <Field label="State / Province" error={addrErr.state}>
-                  <select
-                    className={inputCls(addrErr.state)}
-                    value={address.state}
-                    onChange={e => { setCityOther(false); setAddress({...address,state:e.target.value,city:''}); }}
-                  >
-                    <option value="">Select state</option>
-                    {getStates(address.country).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </Field>
-                <Field label="City" error={addrErr.city}>
-                  <select
-                    className={inputCls(addrErr.city)}
-                    value={cityOther ? OTHER_CITY : address.city}
-                    disabled={!address.state}
-                    onChange={e => {
-                      const other = e.target.value === OTHER_CITY;
-                      setCityOther(other);
-                      setAddress({...address,city: other ? '' : e.target.value});
-                    }}
-                  >
-                    <option value="">{address.state ? 'Select city' : 'Select state first'}</option>
-                    {getCities(address.country, address.state).map(c => <option key={c} value={c}>{c}</option>)}
-                    {address.state && <option value={OTHER_CITY}>Other (not listed)</option>}
-                  </select>
-                  {cityOther && (
-                    <input className={inputCls(addrErr.city)} placeholder="Enter your city / town" value={address.city} onChange={e => setAddress({...address,city:e.target.value})} />
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {saved.map(a => editingId === a.id ? (
+                    <div key={a.id} className="rounded-xl border-2 border-cactus-500 p-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300">Edit address</p>
+                        <button type="button" onClick={cancelEdit} className="text-xs text-gray-500 hover:underline">Cancel</button>
+                      </div>
+                      <AddressForm showLabel value={address} errors={addrErr} onChange={setAddress} />
+                      <p className="text-[11px] text-gray-400 mt-3">Changes are saved to your address book when you continue.</p>
+                    </div>
+                  ) : (
+                    <AddressCard key={a.id} address={a}
+                      selected={selectedId === a.id}
+                      onSelect={() => selectSaved(a)}
+                      actions={<button type="button" onClick={() => editSaved(a)} className="text-cactus-600 dark:text-cactus-400 hover:underline">Edit</button>} />
+                  ))}
+
+                  {saved.length > 0 && (
+                    <button type="button" onClick={selectNew} aria-pressed={selectedId === 'new'}
+                      className={cn('flex items-center gap-2 p-4 rounded-xl border-2 text-sm font-semibold text-left transition-colors',
+                        selectedId === 'new'
+                          ? 'border-cactus-500 text-cactus-700 dark:text-cactus-300'
+                          : 'border-dashed border-gray-300 dark:border-gray-700 text-cactus-600 dark:text-cactus-400 hover:border-cactus-400')}>
+                      <span aria-hidden className={cn('w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center',
+                        selectedId === 'new' ? 'border-cactus-600' : 'border-gray-300 dark:border-gray-600')}>
+                        {selectedId === 'new' && <span className="w-2 h-2 rounded-full bg-cactus-600" />}
+                      </span>
+                      + Add a new address
+                    </button>
                   )}
-                </Field>
-                <Field label="ZIP / PIN" error={addrErr.zip}>
-                  <input className={inputCls(addrErr.zip)} placeholder="ZIP / PIN" value={address.zip} onChange={e => setAddress({...address,zip:e.target.value})} />
-                </Field>
-              </div>
+
+                  {selectedId === 'new' && (
+                    <div className={cn(saved.length > 0 && 'rounded-xl border border-gray-200 dark:border-gray-700 p-4')}>
+                      <AddressForm showLabel={saveNew} value={address} errors={addrErr} onChange={setAddress} />
+                      {isLoggedIn && (
+                        <label className="flex items-start gap-2 mt-5 text-sm text-gray-600 dark:text-gray-400">
+                          <input type="checkbox" className="w-4 h-4 mt-0.5 flex-shrink-0 accent-cactus-600" checked={saveNew} onChange={e => setSaveNew(e.target.checked)} />
+                          Save this address to my profile for next time
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="flex justify-end mt-6">
-                <button onClick={handleNextStep} className="px-8 py-3 bg-cactus-600 hover:bg-cactus-700 text-white rounded-xl font-semibold transition-colors">
-                  Continue to Payment →
+                <button onClick={handleNextStep} disabled={savingAddr}
+                  className="px-8 py-3 bg-cactus-600 hover:bg-cactus-700 disabled:opacity-60 text-white rounded-xl font-semibold transition-colors">
+                  {savingAddr ? 'Saving address…' : selectedId === 'new' ? 'Continue to Payment →' : 'Deliver Here →'}
                 </button>
               </div>
             </div>

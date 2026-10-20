@@ -7,6 +7,7 @@ import { cn }        from '../utils/cn';
 import { Badge }     from '../components/ui/Badge';
 import { Pagination } from '../components/ui/Pagination';
 import { StatusBadge } from '../components/ui/StatusBadge';
+import { AddressBook } from '../components/address/AddressBook';
 
 const PAGE_SIZE = 5;
 
@@ -43,7 +44,7 @@ interface MyOrder {
   trackingStatus?: string;
 }
 
-type Tab = 'bids' | 'orders';
+type Tab = 'bids' | 'orders' | 'addresses';
 
 // ── Status config ─────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -90,6 +91,9 @@ export function ProfilePage() {
   useEffect(() => {
     if (!authLoading && !isLoggedIn) navigate('/home', { replace: true });
   }, [authLoading, isLoggedIn, navigate]);
+
+  // Follow ?tab= when it changes while this page is open (e.g. the header menu's My Orders / My Addresses)
+  useEffect(() => { setTab(defaultTab); }, [defaultTab]);
 
   // Load data
   useEffect(() => {
@@ -149,28 +153,31 @@ export function ProfilePage() {
       </div>
 
       {/* ── Tabs ─────────────────────────────────────────────── */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 mb-6 w-full sm:w-fit">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 mb-6 w-full sm:w-fit overflow-x-auto">
         {([
-          { key: 'bids',   label: `My Bids (${bids.length})`    },
-          { key: 'orders', label: `My Orders (${orders.length})` },
-        ] as { key: Tab; label: string }[]).map(({ key, label }) => (
+          { key: 'bids',      label: `My Bids (${bids.length})`,     short: `Bids (${bids.length})`     },
+          { key: 'orders',    label: `My Orders (${orders.length})`, short: `Orders (${orders.length})` },
+          { key: 'addresses', label: 'Addresses',                    short: 'Addresses'                 },
+        ] as { key: Tab; label: string; short: string }[]).map(({ key, label, short }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={cn(
-              'flex-1 sm:flex-none px-3 sm:px-5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-200',
+              'flex-1 sm:flex-none px-2 sm:px-5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-200',
               tab === key
                 ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200',
             )}
           >
-            {label}
+            {/* Shorter labels on phones so all three tabs fit */}
+            <span className="sm:hidden">{short}</span>
+            <span className="hidden sm:inline">{label}</span>
           </button>
         ))}
       </div>
 
       {/* ── Loading ───────────────────────────────────────────── */}
-      {loading && (
+      {loading && tab !== 'addresses' && (
         <div className="space-y-3">
           {[1,2,3].map(i => (
             <div key={i} className="h-20 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
@@ -366,6 +373,11 @@ export function ProfilePage() {
           )}
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════════
+          ADDRESSES TAB
+      ═══════════════════════════════════════════════════════ */}
+      {tab === 'addresses' && <AddressBook />}
     </div>
   );
 }
